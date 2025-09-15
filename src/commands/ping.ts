@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "discord.js";
+import { ButtonInteraction, SlashCommandBuilder } from "discord.js";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 
 const row = new ActionRowBuilder()
@@ -9,10 +9,19 @@ const row = new ActionRowBuilder()
       .setStyle(ButtonStyle.Primary),
   );
 
-export const command = new SlashCommandBuilder()
-  .setName("ping")
-  .setDescription("Отвечает Pong!");
-
-export async function execute(interaction: any) {
-  await interaction.reply({ content: 'Кнопка:', components: [row] });
+const interactionPrimary = async (buttonInteraction: ButtonInteraction) => {
+  await buttonInteraction.reply({content: "Ты нажал на кнопку!", ephemeral: true})
 }
+
+export default {
+  data: new SlashCommandBuilder()
+  .setName("ping")
+  .setDescription("Отвечает Pong!"),
+  async execute(interaction:any){
+    await interaction.reply({ content: 'Кнопка:', components: [row] });
+  },
+  interactions: {
+    "primary": interactionPrimary
+  }
+} 
+
