@@ -1,27 +1,13 @@
-import { ButtonInteraction, SlashCommandBuilder } from "discord.js";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-
-const row = new ActionRowBuilder()
-  .addComponents(
-    new ButtonBuilder()
-      .setCustomId('primary')
-      .setLabel('Нажми!')
-      .setStyle(ButtonStyle.Primary),
-  );
-
-const interactionPrimary = async (buttonInteraction: ButtonInteraction) => {
-  await buttonInteraction.reply({content: "Ты нажал на кнопку!", ephemeral: true})
-}
+import { SlashCommandBuilder } from "discord.js";
 
 export default {
   data: new SlashCommandBuilder()
   .setName("ping")
   .setDescription("Отвечает Pong!"),
   async execute(interaction:any){
-    await interaction.reply({ content: 'Кнопка:', components: [row] });
+    await interaction.reply({ content: 'bruh', ephemeral: true});
+    await interaction.member.send("gg")
   },
-  interactions: {
-    "primary": interactionPrimary
-  }
+  interactions: {}
 } 
 

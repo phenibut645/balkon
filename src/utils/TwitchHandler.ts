@@ -65,7 +65,6 @@ export class TwitchHandler {
         const data = await res.json();
 
         if (!data.data || data.data.length === 0) return null;
-        console.log(data)
         const response = {
             avatar: data.data[0].profile_image_url,
             banner: data.data[0].offline_image_url ?? null

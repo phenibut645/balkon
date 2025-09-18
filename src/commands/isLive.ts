@@ -1,8 +1,5 @@
-import { ButtonInteraction, SlashCommandBuilder } from "discord.js";
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder } from "discord.js";
 import { TwitchHandler } from "../utils/TwitchHandler.js";
-
-
 
 export default {
   data: new SlashCommandBuilder()
@@ -15,7 +12,7 @@ export default {
   async execute(interaction:any){
     const nickname = interaction.options.getString("nickname")
     const streamerInfo = await TwitchHandler.getInstance().getStreamerInfo(nickname)
-    await interaction.reply({ content: `${nickname} сейчас ${streamerInfo.isLive ? "стримит." : "не стримит"}`});
+    await interaction.reply({ content: `${nickname} сейчас ${streamerInfo.isLive ? "стримит." : "не стримит"}`, });
   },
   interactions: {
     
