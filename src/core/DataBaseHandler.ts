@@ -1,8 +1,8 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { CommandsDB, DataBaseTables, DefaultDBTable, GeneralSettingsDB, GuildMembersD, GuildsDB, MembersDB, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
+import { CommandsDB, DataBaseTables, DefaultDBTable, GeneralSettingsDB, GuildMembersD, GuildsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
-import { Guild } from "discord.js";
+import { Guild, Interaction } from "discord.js";
 
 export type PossibleErrorReason = "record_not_found" | "mysql_error" | "unknown";
 export type RelatedTo = "unknown" | DataBaseTables;
@@ -43,6 +43,10 @@ interface StreamerData extends RowDataPacket {
   twitch_url: string;
   ds_channel_id: string;
   ds_guild_id: string;
+}
+
+export enum UpdateType {
+    Add = "add"
 }
 
 export class DataBaseHandler {  
@@ -116,7 +120,9 @@ export class DataBaseHandler {
                 conditions = keys.map(key => `${key} = ?`).join(" AND ");
                 values = keys.map(key => whereColumns[key]);
             }
-            const [rows] = await pool.query<RowDataPacket[]>(`SELECT ${columns ? columns.join(", ") : "*"} FROM ${table} ${whereColumns ? `WHERE ${conditions}` : ""}`, [values]);
+            console.log("EUU", `SELECT ${columns ? columns.join(", ") : "*"} FROM ${table} ${whereColumns ? `WHERE ${conditions}` : ""}`)
+            console.log("AAAAND", values)
+            const [rows] = await pool.query<RowDataPacket[]>(`SELECT ${columns ? columns.join(", ") : "*"} FROM ${table} ${whereColumns ? `WHERE ${conditions}` : ""}`, values);
             return {
                 success: true,
                 data: rows as T[]
@@ -219,6 +225,27 @@ export class DataBaseHandler {
         }
     }
 
+    async updateTable(table: DataBaseTables, column: string, value: any, updateType?: UpdateType): Promise<DBResponse<{modified: number}>>{
+        try{
+            let result: ResultSetHeader
+            if(updateType === UpdateType.Add){
+                result = (await pool.query<ResultSetHeader>(`UPDATE ${table} SET ${column} = ${column} + ?`, [value]))[0]
+            }
+            else {
+                result = (await pool.query<ResultSetHeader>(`UPDATE ${table} SET ${column} = ?`, [value]))[0]
+            }
+            return {
+                success: true,
+                data: {
+                    modified: result.affectedRows
+                }
+            }
+        }
+        catch(err: unknown){
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
     async deleteGuildFromDB(guild: Guild | string | number): Promise<DBResponse<null>>{
         try{
             if(guild instanceof Guild){
@@ -246,7 +273,7 @@ export class DataBaseHandler {
         }
     }
 
-    async isMemberExists(member: number | string, writeMember?: boolean, guild?: string | number, writeMemberToGuild?: boolean): Promise<DBResponse<IsExistsResponse>> {
+    async isMemberExists(member: number | string, writeMember?: boolean, guild?: string | number, writeMemberToGuild?: boolean, interaction?: Interaction): Promise<DBResponse<IsExistsResponse>> {
         if (typeof member === "string"){
             const tableResponse = await this.getFromTable<MembersDB>("members", {ds_member_id: member});
             if (DataBaseHandler.isSuccess(tableResponse)){
@@ -332,6 +359,7 @@ export class DataBaseHandler {
                 }
                 else return tableResponse
             }
+
             const guildMembersResponse = await this.getFromTable<GuildMembersD>("guild_members", {guild_id: guild, member_id: member})
             if(DataBaseHandler.isSuccess(guildMembersResponse)){
                 if(guildMembersResponse.data.length){
@@ -349,7 +377,8 @@ export class DataBaseHandler {
                     const addGuildMember = await this.addRecords<GuildMembersD>([{
                         id: 0,
                         guild_id: guild,
-                        member_id: member
+                        member_id: member,
+                        member_status_id: (interaction?.user.id === interaction?.guild?.ownerId ? MemberStatuses.GuildOwner : MemberStatuses.Default)
                     }], "guild_members")
                     if(DataBaseHandler.isSuccess(addGuildMember)){
                         return {

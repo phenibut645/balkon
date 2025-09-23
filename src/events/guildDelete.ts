@@ -1,5 +1,5 @@
 import { Guild } from "discord.js";
-import { DataBaseHandler, dataBaseHandler } from "../utils/DataBaseHandler.js";
+import { DataBaseHandler, dataBaseHandler } from "../core/DataBaseHandler.js";
 
 export const guildDeleteController = async (guild: Guild) => {
   console.log(`📝 Deleting ${guild.name} (Guild) from database...`)

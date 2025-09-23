@@ -11,11 +11,11 @@ export const messageCreateController = async (message: Message) => {
         }
         else {
             switch (message.content.toLowerCase()) {
-                case "понял":
-                    await message.author.send("вот и пошел нахуй")
+                case "ok":
+                    await message.author.send("go outside, touch the grass")
                     break;
-                case "нет":
-                    await message.author.send("та все, не еби мозги, гидроцефал")
+                case "no":
+                    await message.author.send("don't disturb me")
                     break;
             }
         }

@@ -1,0 +1,12 @@
+{
+    "ping": {
+        "content": "pong"
+    },
+    "islive": {
+        "live": "{nickname} isn't live!",
+        "not_live": "{nickname} is live!"
+    },
+    "balance": {
+        "title": "Current balance"
+    }
+}

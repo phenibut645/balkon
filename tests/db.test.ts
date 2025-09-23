@@ -1,4 +1,3 @@
-// db.test.ts
 import { describe, it, expect, vi } from "vitest";
 import * as db from "../src/db";
 

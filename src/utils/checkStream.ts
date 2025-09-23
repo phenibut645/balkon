@@ -1,6 +1,6 @@
 import { Client, TextChannel, EmbedBuilder, MessageMentionTypes } from "discord.js";
-import { TwitchHandler } from "./utils/TwitchHandler.js";
-import type { IStreamers } from "./types/streamers.types.ts";
+import { TwitchHandler } from "../core/TwitchHandler.js";
+import type { IStreamers } from "../types/streamers.types.js";
 
 export async function checkStream(client: Client, streamers: IStreamers) {
   const twitchHandler = TwitchHandler.getInstance();

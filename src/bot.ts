@@ -3,14 +3,14 @@ import * as ping from "./commands/ping.js";
 import path from "path";
 import fs from "fs";
 import { DISCORD_TOKEN, GUILD_ID } from "./config.js";
-import { checkStream } from "./notifications.js";
+import { checkStream } from "./utils/checkStream.js";
 import { IStreamers } from "./types/streamers.types.js";
-import { DataBaseHandler } from "./utils/DataBaseHandler.js";
-import { clientReadyController } from "./controllers/clientReady.js";
-import { interactionCreateController } from "./controllers/interactionCreate.js";
-import { guildCreateController } from "./controllers/guildCreate.js";
-import { guildDeleteController } from "./controllers/guildDelete.js";
-import { messageCreateController } from "./controllers/messageCreate.js";
+import { DataBaseHandler } from "./core/DataBaseHandler.js";
+import { clientReadyController } from "./events/clientReady.js";
+import { interactionCreateController } from "./events/interactionCreate.js";
+import { guildCreateController } from "./events/guildCreate.js";
+import { guildDeleteController } from "./events/guildDelete.js";
+import { messageCreateController } from "./events/messageCreate.js";
 
 const client = new Client({
   intents: [
@@ -38,30 +38,6 @@ const client = new Client({
     Partials.ThreadMember
   ]
 });
-
-export interface FunctionWithInteraction {
-  (interaction: Interaction): never
-}
-export interface CommandInfo {
-  command: string
-}
-
-export const commands = new Map();
-
-const commandsPath = path.join(import.meta.dirname, "commands");
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".ts") || file.endsWith(".js"));
-
-for (const file of commandFiles) {
-  const filePath = path.join(commandsPath, file);
-  const module = await import(`file://${filePath}`);
-  const command = module.default;
-  if (command.data && command.execute && command.interactions) {
-    commands.set(command.data.name, {
-      execute: command.execute,
-      interactions: command.interactions
-    });
-  }
-}
 
 client.once("clientReady", clientReadyController);
 

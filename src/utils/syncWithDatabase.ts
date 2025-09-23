@@ -1,5 +1,5 @@
 import { Client } from "discord.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
+import { DataBaseHandler } from "../core/DataBaseHandler.js";
 import { GuildsDB } from "../types/database.types.js";
 
 export interface DataBaseSynchronisationResponse {

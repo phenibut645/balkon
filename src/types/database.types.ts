@@ -23,6 +23,11 @@ export interface GuildMembersD extends DefaultDBTable {
     member_id: number
 }
 
+export enum MemberStatuses {
+    Default = 1,
+    GuildOwner = 2
+}
+
 export interface MemberStatusesDB extends DefaultDBTable {
     name: string // add
 }
@@ -192,4 +197,13 @@ export interface GuildChannelsTagsDB extends DefaultDBTable {
 export interface GuildChannels extends DefaultDBTable {
     guild_id: number,
     ds_channel_id: string
+}
+
+export enum CommandAccessLevels {
+    Public = "public",
+    Private = "private"
+}
+
+export interface CommandAccessLevelsDB extends DefaultDBTable {
+    name: CommandAccessLevels
 }

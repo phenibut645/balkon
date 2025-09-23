@@ -1,0 +1,12 @@
+{
+    "ping": {
+        "content": "pong"
+    },
+    "islive": {
+        "live": "{nickname} сейчас не стримит!",
+        "not_live": "{nickname} сейчас стрими!"
+    },
+    "balance": {
+        "title": "Текущий баланс"
+    }
+}
