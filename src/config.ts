@@ -33,22 +33,29 @@ export const USER = databaseUser;
 export const PASSWORD = databasePassword;
 export const DATABASE = databaseName;
 
-const variables = [
-        DISCORD_TOKEN, CLIENT_ID, GUILD_ID, HOST, USER, PASSWORD, DATABASE, TWITCH_CLIENT_ID, TWITCH_SECRET_ID, DEVELOPER_DISCORD_ID
-]
+const requiredVariables = [
+    { label: "DISCORD_TOKEN", value: DISCORD_TOKEN },
+    { label: "CLIENT_ID", value: CLIENT_ID },
+    { label: "GUILD_ID", value: GUILD_ID },
+    { label: "DB_HOST or HOST", value: HOST },
+    { label: "DB_USER or USER", value: USER },
+    { label: "DB_PASSWORD or PASSWORD", value: PASSWORD },
+    { label: "DB_NAME or DATABASE", value: DATABASE },
+    { label: "TWITCH_CLIENT_ID", value: TWITCH_CLIENT_ID },
+    { label: "TWITCH_SECRET_ID", value: TWITCH_SECRET_ID },
+    { label: "DEVELOPER_DISCORD_ID", value: DEVELOPER_DISCORD_ID },
+];
 
 function check(){
-    let i = 1;
     let exit = 0
-    variables.forEach(variable => {
-        if(typeof variable === "string" && variable === ""){
-            console.log(`⚠️ Empty string ${i}`)
+    requiredVariables.forEach(variable => {
+        if(typeof variable.value === "string" && variable.value === ""){
+            console.log(`⚠️ Empty variable ${variable.label}`)
         }
-        else if(!variable){
-            console.error(`❌ Variable not found ${i}`)
+        else if(!variable.value){
+            console.error(`❌ Variable not found: ${variable.label}`)
             exit = 1
         }
-        i++;
     })
     if(exit) {
         console.log("🛠️ Exiting")

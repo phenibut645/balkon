@@ -14,6 +14,9 @@
     "agent": "tsx src/agent/obsAgent.ts",
     "dev-deploy": "cross-env NODE_ENV=dev tsx src/deploy_commands.ts",
     "prod-deploy": "cross-env NODE_ENV=prod tsx src/deploy_commands.ts",
+    "db:init": "node scripts/init_schema.mjs",
+    "db:init:dev": "cross-env NODE_ENV=dev node scripts/init_schema.mjs",
+    "db:init:prod": "cross-env NODE_ENV=prod node scripts/init_schema.mjs",
     "seed-demo": "cross-env NODE_ENV=dev node scripts/seed_demo_content.mjs",
     "build": "tsc && node scripts/copy_runtime_assets.mjs"
   },

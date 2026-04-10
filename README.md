@@ -12,9 +12,11 @@ Written in Node.js using mysql2 for the database and discord.js/rest for communi
    `Copy-Item .env.dev.example .env.dev`
    `Copy-Item .env.prod.example .env.prod`
 3. Fill in Discord, MySQL and Twitch credentials in the copied files.
-4. Run the bot in development mode:
+4. Initialize the database schema if the database is empty:
+   `npm run db:init:dev`
+5. Run the bot in development mode:
    `npm run dev`
-5. Register slash commands when needed:
+6. Register slash commands when needed:
    `npm run dev-deploy`
 
 ## Production Start
@@ -23,9 +25,11 @@ Direct production start:
 
 1. Build the bot:
    `npm run build`
-2. Register production slash commands if needed:
+2. Initialize the production database schema if the database is empty:
+   `npm run db:init:prod`
+3. Register production slash commands if needed:
    `npm run prod-deploy`
-3. Start the compiled bot in production mode:
+4. Start the compiled bot in production mode:
    `npm run start`
 
 One-liner for full production start:
@@ -44,15 +48,17 @@ Typical flow:
 
 1. Build the bot:
    `npm run build`
-2. Register production slash commands if needed:
+2. Initialize the production database schema if the database is empty:
+   `npm run db:init:prod`
+3. Register production slash commands if needed:
    `npm run prod-deploy`
-3. Start through PM2:
+4. Start through PM2:
    `npm run pm2:start`
-4. Check logs:
+5. Check logs:
    `npm run pm2:logs`
-5. Restart after updates:
+6. Restart after updates:
    `npm run pm2:restart`
-6. Stop the process:
+7. Stop the process:
    `npm run pm2:stop`
 
 Equivalent raw PM2 commands:
