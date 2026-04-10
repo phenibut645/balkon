@@ -17,6 +17,51 @@ Written in Node.js using mysql2 for the database and discord.js/rest for communi
 5. Register slash commands when needed:
    `npm run dev-deploy`
 
+## Production Start
+
+Direct production start:
+
+1. Build the bot:
+   `npm run build`
+2. Register production slash commands if needed:
+   `npm run prod-deploy`
+3. Start the compiled bot in production mode:
+   `npm run start`
+
+One-liner for full production start:
+
+`npm run start:prod`
+
+If you want to run production without building `dist` first, use:
+
+`npm run start:prod:tsx`
+
+## PM2 Start
+
+The repository now includes `ecosystem.config.cjs` for PM2.
+
+Typical flow:
+
+1. Build the bot:
+   `npm run build`
+2. Register production slash commands if needed:
+   `npm run prod-deploy`
+3. Start through PM2:
+   `npm run pm2:start`
+4. Check logs:
+   `npm run pm2:logs`
+5. Restart after updates:
+   `npm run pm2:restart`
+6. Stop the process:
+   `npm run pm2:stop`
+
+Equivalent raw PM2 commands:
+
+- `pm2 start ecosystem.config.cjs --only balkon-bot`
+- `pm2 restart balkon-bot`
+- `pm2 logs balkon-bot`
+- `pm2 stop balkon-bot`
+
 ## Environment variables
 
 Current runtime requires these values:
