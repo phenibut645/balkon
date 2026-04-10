@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import path from "path";
 import OBSWebSocket from "obs-websocket-js";
 import { WebSocket } from "ws";
 import { ObsMediaAction } from "../core/ObsService.js";
@@ -47,7 +48,7 @@ interface ObsConnectResponse {
     obsWebSocketVersion?: string | null;
 }
 
-dotenv.config({ path: ".env.agent" });
+dotenv.config({ path: path.resolve(import.meta.dirname, "../../.env.agent") });
 
 const relayUrl = process.env.OBS_AGENT_RELAY_URL?.trim();
 const agentId = process.env.OBS_AGENT_ID?.trim();

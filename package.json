@@ -15,7 +15,7 @@
     "dev-deploy": "cross-env NODE_ENV=dev tsx src/deploy_commands.ts",
     "prod-deploy": "cross-env NODE_ENV=prod tsx src/deploy_commands.ts",
     "seed-demo": "cross-env NODE_ENV=dev node scripts/seed_demo_content.mjs",
-    "build": "tsc"
+    "build": "tsc && node scripts/copy_runtime_assets.mjs"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.0",

@@ -1,12 +1,10 @@
 import dotenv from "dotenv";
+import path from "path";
 
 const env = process.env.NODE_ENV || "dev";
+const envFilePath = path.resolve(import.meta.dirname, `../.env.${env === "prod" ? "prod" : "dev"}`);
 
-if (env === "prod") {
-  dotenv.config({ path: ".env.prod" });
-} else {
-  dotenv.config({ path: ".env.dev" });
-}
+dotenv.config({ path: envFilePath });
 
 export const {
     DISCORD_TOKEN,

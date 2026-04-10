@@ -2,7 +2,17 @@ import fs from "fs";
 import path from "path";
 import { Locales, LocalesCodes, supportedLocales } from "../types/locales.type.js";
 
-const localesPath = path.join(import.meta.dirname, "../locales");
+const candidateLocalesPaths = [
+    path.resolve(import.meta.dirname, "../locales"),
+    path.resolve(import.meta.dirname, "../../src/locales"),
+];
+
+const localesPath = candidateLocalesPaths.find(candidatePath => fs.existsSync(candidatePath) && fs.statSync(candidatePath).isDirectory());
+
+if (!localesPath) {
+    throw new Error(`Locales directory not found. Checked: ${candidateLocalesPaths.join(", ")}`);
+}
+
 const files = fs.readdirSync(localesPath).filter(f => f.endsWith(".json"));
 
 const translations: Record<string, any> = {};

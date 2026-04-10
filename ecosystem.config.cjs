@@ -4,6 +4,7 @@ module.exports = {
       name: "balkon-bot",
       script: "dist/bot.js",
       cwd: __dirname,
+      interpreter: "node",
       instances: 1,
       autorestart: true,
       watch: false,
