@@ -69,10 +69,10 @@ Current runtime requires these values:
 - `DISCORD_TOKEN`
 - `CLIENT_ID`
 - `GUILD_ID`
-- `HOST`
-- `USER`
-- `PASSWORD`
-- `DATABASE`
+- `DB_HOST` (preferred) or `HOST`
+- `DB_USER` (preferred) or `USER`
+- `DB_PASSWORD` (preferred) or `PASSWORD`
+- `DB_NAME` (preferred) or `DATABASE`
 - `TWITCH_CLIENT_ID`
 - `TWITCH_SECRET_ID`
 - `DEVELOPER_DISCORD_ID`

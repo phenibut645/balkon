@@ -4,17 +4,17 @@ import path from "path";
 const env = process.env.NODE_ENV || "dev";
 const envFilePath = path.resolve(import.meta.dirname, `../.env.${env === "prod" ? "prod" : "dev"}`);
 
-dotenv.config({ path: envFilePath });
+dotenv.config({ path: envFilePath, override: true });
+
+const databaseHost = process.env.DB_HOST ?? process.env.HOST;
+const databaseUser = process.env.DB_USER ?? process.env.USER;
+const databasePassword = process.env.DB_PASSWORD ?? process.env.PASSWORD;
+const databaseName = process.env.DB_NAME ?? process.env.DATABASE;
 
 export const {
     DISCORD_TOKEN,
     CLIENT_ID,
     GUILD_ID,
-
-    HOST,
-    USER,
-    PASSWORD,
-    DATABASE,
 
     TWITCH_CLIENT_ID,
     TWITCH_SECRET_ID,
@@ -27,6 +27,11 @@ export const {
     DEVELOPER_DISCORD_ID,
     BOT_ADMIN_IDS
 } = process.env
+
+export const HOST = databaseHost;
+export const USER = databaseUser;
+export const PASSWORD = databasePassword;
+export const DATABASE = databaseName;
 
 const variables = [
         DISCORD_TOKEN, CLIENT_ID, GUILD_ID, HOST, USER, PASSWORD, DATABASE, TWITCH_CLIENT_ID, TWITCH_SECRET_ID, DEVELOPER_DISCORD_ID
