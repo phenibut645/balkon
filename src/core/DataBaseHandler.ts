@@ -225,14 +225,29 @@ export class DataBaseHandler {
         }
     }
 
-    async updateTable(table: DataBaseTables, column: string, value: any, updateType?: UpdateType): Promise<DBResponse<{modified: number}>>{
+    async updateTable(
+        table: DataBaseTables,
+        column: string,
+        value: any,
+        whereColumns?: Record<string, any>,
+        updateType?: UpdateType
+    ): Promise<DBResponse<{modified: number}>>{
         try{
             let result: ResultSetHeader
+            let conditions = "";
+            let values = [value];
+
+            if (whereColumns && Object.keys(whereColumns).length) {
+                const keys = Object.keys(whereColumns);
+                conditions = ` WHERE ${keys.map(key => `${key} = ?`).join(" AND ")}`;
+                values = [value, ...keys.map(key => whereColumns[key])];
+            }
+
             if(updateType === UpdateType.Add){
-                result = (await pool.query<ResultSetHeader>(`UPDATE ${table} SET ${column} = ${column} + ?`, [value]))[0]
+                result = (await pool.query<ResultSetHeader>(`UPDATE ${table} SET ${column} = ${column} + ?${conditions}`, values))[0]
             }
             else {
-                result = (await pool.query<ResultSetHeader>(`UPDATE ${table} SET ${column} = ?`, [value]))[0]
+                result = (await pool.query<ResultSetHeader>(`UPDATE ${table} SET ${column} = ?${conditions}`, values))[0]
             }
             return {
                 success: true,

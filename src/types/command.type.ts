@@ -1,11 +1,9 @@
 import { 
     SlashCommandBuilder, ChatInputCommandInteraction, 
-    ButtonInteraction, StringSelectMenuInteraction, ModalSubmitInteraction 
+    ButtonInteraction, StringSelectMenuInteraction, ModalSubmitInteraction, AutocompleteInteraction, UserSelectMenuInteraction
 } from "discord.js";
-import { CommandAccessLevels } from "./database.types.js";
-import { CommandDTO } from "../dto/CommandDTO.js";
 
-export type CommandName = "balance" | "help" | "isLive" | "ping" | "roulette";
+export type CommandName = string;
 
 export interface ButtonExecutionFunc {
     (interaction: ButtonInteraction): Promise<void>
@@ -15,6 +13,14 @@ export interface StringSelectMenuExecutionFunc {
     (interaction: StringSelectMenuInteraction): Promise<void>
 }
 
+export interface UserSelectMenuExecutionFunc {
+    (interaction: UserSelectMenuInteraction): Promise<void>
+}
+
 export interface ModalsExecutionFunc {
     (interaction: ModalSubmitInteraction): Promise<void>
+}
+
+export interface AutocompleteExecutionFunc {
+    (interaction: AutocompleteInteraction): Promise<void>
 }

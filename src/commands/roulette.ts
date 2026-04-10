@@ -1,5 +1,5 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChatInputCommandInteraction, Message, SlashCommandBuilder, StringSelectMenuBuilder } from "discord.js";
-import { ButtonExecutionFunc, CommandName, ModalsExecutionFunc, StringSelectMenuExecutionFunc } from "../types/command.type.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
+import { ButtonExecutionFunc, CommandName } from "../types/command.type.js";
 import { CommandAccessLevels } from "../types/database.types.js";
 import { commandSessionHandler } from "../core/commands/CommandSessionHandler.js";
 import { Command } from "../core/commands/Command.js";
@@ -9,7 +9,6 @@ import { dataBaseHandler, UpdateType } from "../core/DataBaseHandler.js";
 export interface RouletteSession {
     bullet: number,
     bet: number,
-    msg: Message,
     alive: boolean
 }   
 
@@ -40,6 +39,7 @@ export default class RouletteCommand extends Command {
         builder.addNumberOption(option => 
             option.setName("bet")
                 .setDescription("Ставка на выживание")
+                .setRequired(true)
         );
 
         this.data = builder
@@ -53,10 +53,16 @@ export default class RouletteCommand extends Command {
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await dataBaseHandler.isMemberExists(interaction.user.id, true);
+        const bet = interaction.options.getNumber("bet");
+
+        if (bet === null || bet <= 0) {
+            await interaction.reply({ content: "Укажите ставку больше 0.", flags: ["Ephemeral"] });
+            return;
+        }
         
         commandSessionHandler.createSession(interaction.user.id, this.commandName, {
             bullet: 0,
-            bet: interaction.options.getNumber("bet"),
+            bet,
             alive: true
         })
 
@@ -71,17 +77,10 @@ export default class RouletteCommand extends Command {
                     .setLabel("Согласиться")
                     .setStyle(ButtonStyle.Success)
             )
-        const msg = await interaction.reply({content: "Действительно ли вы хотите сыграть?", flags: ["Ephemeral"], components: [buttons]})
-        commandSessionHandler.createSession(interaction.user.id, this.commandName, {
-            bullet: 0,
-            bet: interaction.options.getNumber("bet"),
-            alive: true,
-            msg
-        })
+        await interaction.reply({content: "Действительно ли вы хотите сыграть?", flags: ["Ephemeral"], components: [buttons]})
     }
 
     play: ButtonExecutionFunc = async (interaction) => {
-        
         const row = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder()
@@ -94,12 +93,12 @@ export default class RouletteCommand extends Command {
                     .setStyle(ButtonStyle.Primary)
             )
         
-        await interaction.editReply({content: `Итак, в барабане сейчас находится ${MAX_BULLETS} патронов. Стреляешь?`, components: [row]})
+        await interaction.update({content: `Итак, в барабане сейчас находится ${MAX_BULLETS} патронов. Стреляешь?`, components: [row]})
     }
 
     decline: ButtonExecutionFunc = async (interaction) => {
         commandSessionHandler.deleteSession(interaction.user.id, this.commandName)
-        await interaction.reply({content: "Ну, как хочешь.", flags: ["Ephemeral"]})
+        await interaction.update({content: "Ну, как хочешь.", components: []})
     }
 
     private randomShoot(attempt: number): boolean {
@@ -128,27 +127,28 @@ export default class RouletteCommand extends Command {
                                 .setStyle(ButtonStyle.Secondary)
                         )
                     
-                    await interaction.reply({content: `Поздравляю, ${session.bullet} из ${MAX_BULLETS} холостая. Продолжим?`, flags: ["Ephemeral"], components: [row]})
+                    commandSessionHandler.updateSession(interaction.user.id, this.commandName, session);
+                    await interaction.update({content: `Поздравляю, ${session.bullet} из ${MAX_BULLETS} холостая. Продолжим?`, components: [row]})
                 }
                 else if(session.bullet === MAX_BULLETS){
-                    const row = new ActionRowBuilder<ButtonBuilder>()
-                        .addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(this.shootCommand.toString())
-                                .setLabel("Стреляю!")
-                                .setStyle(ButtonStyle.Danger),
-                            new ButtonBuilder()
-                                .setCustomId(this.declineCommand.toString())
-                                .setLabel("Пожалуй нет.")
-                                .setStyle(ButtonStyle.Secondary)
-                        )
-                    await dataBaseHandler.updateTable("members", "balance", session.bet * WIN_MULTIPLY, UpdateType.Add);
-                    await interaction.reply({content: `Поздравляю, ты выжил после всех ${MAX_BULLETS} пуль! Ты заработал ${session.bet * WIN_MULTIPLY}`, flags: ["Ephemeral"], components: [row]})
+                    commandSessionHandler.deleteSession(interaction.user.id, this.commandName);
+                    await dataBaseHandler.updateTable(
+                        "members",
+                        "balance",
+                        session.bet * WIN_MULTIPLY,
+                        { ds_member_id: interaction.user.id },
+                        UpdateType.Add
+                    );
+                    await interaction.update({content: `Поздравляю, ты выжил после всех ${MAX_BULLETS} пуль! Ты заработал ${session.bet * WIN_MULTIPLY}`, components: []})
                 }
 
             }
             else {
-                commandSessionHandler.deleteSession(interaction.user.id, this.commandName)
+                commandSessionHandler.updateSession(interaction.user.id, this.commandName, {
+                    bullet: 0,
+                    bet: session.bet,
+                    alive: true
+                })
 
                 const row = new ActionRowBuilder<ButtonBuilder>()
                     .addComponents(
@@ -161,7 +161,7 @@ export default class RouletteCommand extends Command {
                             .setLabel("Не")
                             .setStyle(ButtonStyle.Primary)
                     )
-                await interaction.reply({content: `К сожалению ${session.bullet + 1} из ${MAX_BULLETS} оказалась не холостой и вы умерли... . Сыграем еще раз?`, flags: ["Ephemeral"], components: [row]})
+                await interaction.update({content: `К сожалению ${session.bullet + 1} из ${MAX_BULLETS} оказалась не холостой и вы умерли... Сыграем еще раз?`, components: [row]})
             }
         }
         else{
@@ -176,6 +176,3 @@ export default class RouletteCommand extends Command {
         }
     }
 }
-
-// пофиксить так, чтобы изменялось только сообщение
-// нужно добавить каждый раз при новой игре выбор ставки, хз как кокретно, мб модалка

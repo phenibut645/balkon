@@ -1,14 +1,9 @@
-import { REST, Routes, SlashCommandBuilder } from "discord.js";
-import fs from "fs";
-import path from "path";
-import "dotenv/config";
+import { REST, Routes } from "discord.js";
 import { CLIENT_ID, DISCORD_TOKEN } from "./config.js";
-import { commands } from "./core/commands/CommandsLoader.js";
+import { slashCommands } from "./core/commands/CommandsLoader.js";
 
-const slashCommands: any[] = []
-commands.forEach(command => {
-    console.log(command.data.name)
-    slashCommands.push(command.data.toJSON())
+slashCommands.forEach((command: { name: string }) => {
+    console.log(command.name)
 })
 
 const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN!);

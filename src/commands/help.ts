@@ -2,6 +2,8 @@ import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 import { CommandAccessLevels } from "../types/database.types.js";
 import { Command } from "../core/commands/Command.js";
 import { CommandName, ButtonExecutionFunc, StringSelectMenuExecutionFunc, ModalsExecutionFunc } from "../types/command.type.js";
+import { getUserLocale } from "../utils/commandLocale.js";
+import { t } from "../utils/i18n.js";
 
 export default class HelpCommand implements Command{
     data: SlashCommandBuilder;
@@ -17,11 +19,9 @@ export default class HelpCommand implements Command{
     buttons?: Map<string, ButtonExecutionFunc> | undefined;
     stringSelectMenu?: Map<string, StringSelectMenuExecutionFunc> | undefined;
     modals?: Map<string, ModalsExecutionFunc> | undefined;
-    toString(): string {
-        throw new Error("Method not implemented.");
-    }
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        interaction.reply({content: "Пока что ничего", flags: ["Ephemeral"]})
+        const locale = await getUserLocale(interaction.user.id);
+        interaction.reply({content: t(locale, "commands.help.content"), flags: ["Ephemeral"]})
     }
 }

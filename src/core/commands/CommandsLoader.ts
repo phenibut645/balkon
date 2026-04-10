@@ -12,8 +12,9 @@ function isCommand(obj: any): obj is Command {
 }
 
 export const commands = new Map<string, Command>();
+export const slashCommands: ReturnType<Command["data"]["toJSON"]>[] = [];
 
-const commandsPath = path.join(process.cwd(), "src/commands");
+const commandsPath = path.join(import.meta.dirname, "../../commands");
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".ts") || file.endsWith(".js"));
 
 for (const file of commandFiles) {
@@ -26,6 +27,7 @@ for (const file of commandFiles) {
   const commandInstance = new CommandClass();
   if(isCommand(commandInstance)) {
     commands.set(commandInstance.data.name, commandInstance)
+    slashCommands.push(commandInstance.data.toJSON())
   }
 }
 

@@ -1,6 +1,6 @@
 import { RowDataPacket } from "mysql2"
 
-export type DataBaseTables = "guilds" | "logs_channel" | "guild_members" | "member_statuses" | "general_settings" |"log_types" | "guild_roles" | "members" | "member_roles" | "twitch_notification_channels" | "member_command_permissions" | "commands" | "member_items" | "item_public_market" | "item_general_store" | "items" | "item_types" | "role_command_permissions" | "streamers" | "muted_users" | "banned_members" | "guild_item_roles" | "item_roles" | "item_treasures" | "mute_roles" | "item_rarities" | "treasure_contents";
+export type DataBaseTables = "guilds" | "logs_channels" | "guild_members" | "guild_member_statuses" | "general_settings" |"log_types" | "guild_roles" | "members" | "member_roles" | "twitch_notification_channels" | "member_command_permissions" | "commands" | "member_items" | "item_public_market" | "item_general_store" | "items" | "item_types" | "role_command_permissions" | "streamers" | "muted_users" | "banned_members" | "guild_item_roles" | "item_roles" | "item_treasures" | "mute_roles" | "item_rarities" | "treasure_contents" | "guild_channels" | "channel_tags_statuses" | "channel_tags" | "guild_role_statuses" | "role_statuses" | "command_access_levels" | "craft_recipes" | "craft_recipe_ingredients" | "bot_settings" | "guild_streamers" | "item_service_actions";
 
 export interface DefaultDBTable {
     id: number;
@@ -43,7 +43,9 @@ export interface GuildRolesDB extends DefaultDBTable {
 
 export interface MembersDB extends DefaultDBTable {
     ds_member_id: string,
-    balance: number
+    balance: number,
+    ldm_balance?: number,
+    locale?: string | null
 }
 
 export interface MemberRolesDB extends DefaultDBTable {
@@ -66,7 +68,8 @@ export interface MemberItemsDB extends DefaultDBTable {
     member_id: number,
     item_id: number,
     tier: number,
-    obtained_at: number
+    obtained_at: number | Date,
+    original_owner_member_id?: number | null
 }
 
 export interface ItemPublicMarketDB extends DefaultDBTable {
@@ -77,6 +80,14 @@ export interface ItemPublicMarketDB extends DefaultDBTable {
 export interface StreamersDB extends DefaultDBTable {
     nickname: string,
     twitch_url: string
+}
+
+export interface GuildStreamersDB extends DefaultDBTable {
+    guild_id: number,
+    streamer_id: number,
+    is_primary?: boolean,
+    created_by_member_id?: number | null,
+    created_at?: number | Date,
 }
 
 export interface TwitchNotificationChannelsDB extends DefaultDBTable {
@@ -90,7 +101,7 @@ export interface RoleCommandPermissionsDB extends DefaultDBTable {
     allowed: boolean
 }
 
-export type ItemTypesDBNames = "role" | "treasure" | "unknown"
+export type ItemTypesDBNames = string
 
 export enum ItemTypes {
     Role = "role",
@@ -108,8 +119,13 @@ export interface ItemsDB extends DefaultDBTable {
     item_rarity_id: number,
     name: string,
     description: string,
-    added_at: number,
-    sellable: boolean
+    emoji?: string | null,
+    added_at: number | Date,
+    sellable: boolean,
+    tradeable?: boolean,
+    image_url?: string | null,
+    bot_sell_price?: number | null,
+    created_by_member_id?: number | null
 }
 
 export interface ItemGeneralStoreDB extends DefaultDBTable {
@@ -151,7 +167,7 @@ export interface MuteRolesDB extends DefaultDBTable {
     guild_role_id: number
 }
 
-export type ItemRaritiesDBNames = "common" | "exclusive" | "unknown"
+export type ItemRaritiesDBNames = string
 
 export enum ItemRaritiesDBEnum {
     Common = "common",
@@ -160,7 +176,8 @@ export enum ItemRaritiesDBEnum {
 }
 
 export interface ItemRaritiesDB extends DefaultDBTable {
-    name: ItemRaritiesDBNames
+    name: ItemRaritiesDBNames,
+    color_hex?: string | null
 }
 
 export interface GeneralSettingsDB extends DefaultDBTable {
@@ -171,6 +188,43 @@ export interface GeneralSettingsDB extends DefaultDBTable {
 export interface TreasureContentsDB extends DefaultDBTable {
     item_treasure_id: number,
     item_id: number
+}
+
+export interface CraftRecipesDB extends DefaultDBTable {
+    name: string,
+    description?: string | null,
+    result_item_id: number,
+    result_amount: number,
+    created_by_member_id?: number | null,
+    created_at?: number | Date,
+}
+
+export interface CraftRecipeIngredientsDB extends DefaultDBTable {
+    craft_recipe_id: number,
+    item_id: number,
+    amount: number,
+}
+
+export interface BotSettingsDB extends DefaultDBTable {
+    setting_key: string,
+    setting_value: string | null,
+    updated_by_member_id?: number | null,
+    updated_at?: number | Date,
+}
+
+export type ItemServiceActionType = "switch_scene" | "source_visibility" | "set_text" | "media_action"
+
+export interface ItemServiceActionsDB extends DefaultDBTable {
+    item_id: number,
+    action_type: ItemServiceActionType,
+    scene_name?: string | null,
+    source_name?: string | null,
+    text_template?: string | null,
+    media_action?: string | null,
+    visible?: boolean | null,
+    consume_on_use?: boolean,
+    updated_by_member_id?: number | null,
+    updated_at?: number | Date,
 }
 
 export type ChannelTagsStatusesNames = "public" | "private"

@@ -11,6 +11,7 @@ import { interactionCreateController } from "./events/interactionCreate.js";
 import { guildCreateController } from "./events/guildCreate.js";
 import { guildDeleteController } from "./events/guildDelete.js";
 import { messageCreateController } from "./events/messageCreate.js";
+import { obsRelayService } from "./core/ObsRelayService.js";
 
 const client = new Client({
   intents: [
@@ -45,6 +46,8 @@ client.on("interactionCreate", interactionCreateController);
 client.on("guildCreate", guildCreateController)
 client.on("guildDelete", guildDeleteController)
 client.on("messageCreate", messageCreateController)
+
+obsRelayService.start();
 
 client.login(DISCORD_TOKEN);
 

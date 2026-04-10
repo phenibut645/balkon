@@ -5,19 +5,10 @@ export const messageCreateController = async (message: Message) => {
     const user = message.author
     if (user.bot) return;
     if(message.channel.type === ChannelType.DM) {
-
         if(user.id === DEVELOPER_DISCORD_ID){
-            // add logic for interaction with bot
+            return;
         }
-        else {
-            switch (message.content.toLowerCase()) {
-                case "ok":
-                    await message.author.send("go outside, touch the grass")
-                    break;
-                case "no":
-                    await message.author.send("don't disturb me")
-                    break;
-            }
-        }
+
+        await message.author.send("Используй slash-команды на сервере. DM-управление сейчас не поддерживается.");
     }
 }

@@ -21,7 +21,13 @@ export const {
     TWITCH_CLIENT_ID,
     TWITCH_SECRET_ID,
 
-    DEVELOPER_DISCORD_ID
+    OBS_WEBSOCKET_URL,
+    OBS_WEBSOCKET_PASSWORD,
+    OBS_AGENT_RELAY_PORT,
+    OBS_AGENT_REQUEST_TIMEOUT_MS,
+
+    DEVELOPER_DISCORD_ID,
+    BOT_ADMIN_IDS
 } = process.env
 
 const variables = [
@@ -48,3 +54,12 @@ function check(){
 }
 
 check();
+
+export const botAdminIds = new Set(
+    [DEVELOPER_DISCORD_ID, ...(BOT_ADMIN_IDS?.split(",") ?? [])]
+        .map(id => id?.trim())
+        .filter((id): id is string => Boolean(id))
+);
+
+export const obsAgentRelayPort = Number(OBS_AGENT_RELAY_PORT ?? 8787);
+export const obsAgentRequestTimeoutMs = Number(OBS_AGENT_REQUEST_TIMEOUT_MS ?? 10_000);

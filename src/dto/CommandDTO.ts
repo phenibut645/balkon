@@ -10,14 +10,18 @@ export class CommandDTO {
     }
     
     toString(){
+        if (!this.additionals.length) {
+            return this.baseCommand;
+        }
+
         return `${this.baseCommand}:${this.additionals.join("|")}`
     }
 
     static convertToCommandDTO(command: string){
-        const splittedCommand = command.split(":")
-        const commandName = splittedCommand[0]
-        const additional = splittedCommand[1]
-        const splittedAdditionals = additional.split("|");
+        const [commandName, additional = ""] = command.split(":")
+        const splittedAdditionals = additional
+            ? additional.split("|").filter(Boolean)
+            : [];
 
         return new CommandDTO(commandName as CommandName, ...splittedAdditionals)
     }
