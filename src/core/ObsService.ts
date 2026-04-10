@@ -4,6 +4,37 @@ import { OBS_WEBSOCKET_PASSWORD, OBS_WEBSOCKET_URL } from "../config.js";
 import pool from "../db.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
 
+interface ObsVersionResponse {
+    obsVersion?: string | null;
+    obsWebSocketVersion?: string | null;
+}
+
+interface ObsCurrentProgramSceneResponse {
+    currentProgramSceneName?: string | null;
+}
+
+interface ObsSceneListEntry {
+    sceneName?: string | null;
+}
+
+interface ObsSceneListResponse {
+    scenes: ObsSceneListEntry[];
+}
+
+interface ObsSceneItemEntry {
+    sceneItemId?: number | null;
+    sourceName?: string | null;
+    sceneItemEnabled?: boolean | null;
+}
+
+interface ObsSceneItemListResponse {
+    sceneItems: ObsSceneItemEntry[];
+}
+
+interface ObsConnectResponse {
+    obsWebSocketVersion?: string | null;
+}
+
 interface ObsSettingRow extends RowDataPacket {
     setting_key: string;
     setting_value: string | null;
@@ -57,10 +88,10 @@ export class ObsService {
         const connectionConfig = await this.getConnectionConfig();
         try {
             await this.ensureConnected();
-            const currentScene = await this.obs.call("GetCurrentProgramScene");
-            const versionInfo = await this.obs.call("GetVersion");
-            this.obsVersion = versionInfo.obsVersion;
-            this.websocketVersion = versionInfo.obsWebSocketVersion;
+            const currentScene = await this.obs.call("GetCurrentProgramScene") as ObsCurrentProgramSceneResponse;
+            const versionInfo = await this.obs.call("GetVersion") as ObsVersionResponse;
+            this.obsVersion = versionInfo.obsVersion ?? null;
+            this.websocketVersion = versionInfo.obsWebSocketVersion ?? null;
 
             return {
                 connected: true,
@@ -89,19 +120,19 @@ export class ObsService {
 
     async listScenes(): Promise<ObsSceneView[]> {
         await this.ensureConnected();
-        const result = await this.obs.call("GetSceneList");
+        const result = await this.obs.call("GetSceneList") as ObsSceneListResponse;
         return result.scenes
-            .map(scene => ({ sceneName: scene.sceneName === null ? "" : String(scene.sceneName) }))
+            .map((scene: ObsSceneListEntry) => ({ sceneName: scene.sceneName === null ? "" : String(scene.sceneName ?? "") }))
             .filter(scene => scene.sceneName.length > 0);
     }
 
     async listSceneItems(sceneName: string): Promise<ObsSceneItemView[]> {
         await this.ensureConnected();
-        const result = await this.obs.call("GetSceneItemList", { sceneName });
+        const result = await this.obs.call("GetSceneItemList", { sceneName }) as ObsSceneItemListResponse;
         return result.sceneItems
-            .map(sceneItem => ({
-                sceneItemId: Number(sceneItem.sceneItemId),
-                sourceName: sceneItem.sourceName === null ? "" : String(sceneItem.sourceName),
+            .map((sceneItem: ObsSceneItemEntry) => ({
+                sceneItemId: Number(sceneItem.sceneItemId ?? NaN),
+                sourceName: sceneItem.sourceName === null ? "" : String(sceneItem.sourceName ?? ""),
                 enabled: Boolean(sceneItem.sceneItemEnabled),
             }))
             .filter(sceneItem => Number.isFinite(sceneItem.sceneItemId) && sceneItem.sourceName.length > 0);
@@ -221,10 +252,10 @@ export class ObsService {
             return;
         }
 
-        const connectResult = await this.obs.connect(connectionConfig.url, connectionConfig.password || undefined);
+        const connectResult = await this.obs.connect(connectionConfig.url, connectionConfig.password || undefined) as ObsConnectResponse;
         this.connected = true;
         this.obsVersion = null;
-        this.websocketVersion = connectResult.obsWebSocketVersion;
+        this.websocketVersion = connectResult.obsWebSocketVersion ?? null;
 
         if (!this.connectionClosedHandlerRegistered) {
             this.obs.on("ConnectionClosed", () => {

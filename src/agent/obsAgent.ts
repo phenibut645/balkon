@@ -16,6 +16,37 @@ import {
     ObsRelaySetTextInputPayload,
 } from "../types/obs-agent.types.js";
 
+interface ObsVersionResponse {
+    obsVersion?: string | null;
+    obsWebSocketVersion?: string | null;
+}
+
+interface ObsCurrentProgramSceneResponse {
+    currentProgramSceneName?: string | null;
+}
+
+interface ObsSceneListEntry {
+    sceneName?: string | null;
+}
+
+interface ObsSceneListResponse {
+    scenes: ObsSceneListEntry[];
+}
+
+interface ObsSceneItemEntry {
+    sceneItemId?: number | null;
+    sourceName?: string | null;
+    sceneItemEnabled?: boolean | null;
+}
+
+interface ObsSceneItemListResponse {
+    sceneItems: ObsSceneItemEntry[];
+}
+
+interface ObsConnectResponse {
+    obsWebSocketVersion?: string | null;
+}
+
 dotenv.config({ path: ".env.agent" });
 
 const relayUrl = process.env.OBS_AGENT_RELAY_URL?.trim();
@@ -128,10 +159,10 @@ class LocalObsAgent {
 
         switch (message.command) {
             case "obs.getStatus": {
-                const currentScene = await this.obs.call("GetCurrentProgramScene");
-                const versionInfo = await this.obs.call("GetVersion");
-                this.lastObsVersion = versionInfo.obsVersion;
-                this.lastWsVersion = versionInfo.obsWebSocketVersion;
+                const currentScene = await this.obs.call("GetCurrentProgramScene") as ObsCurrentProgramSceneResponse;
+                const versionInfo = await this.obs.call("GetVersion") as ObsVersionResponse;
+                this.lastObsVersion = versionInfo.obsVersion ?? null;
+                this.lastWsVersion = versionInfo.obsWebSocketVersion ?? null;
 
                 const result: ObsRelayGetStatusResult = {
                     connected: true,
@@ -144,14 +175,14 @@ class LocalObsAgent {
                 return result;
             }
             case "obs.listScenes": {
-                const result = await this.obs.call("GetSceneList");
-                return result.scenes.map(scene => ({ sceneName: String(scene.sceneName ?? "") }));
+                const result = await this.obs.call("GetSceneList") as ObsSceneListResponse;
+                return result.scenes.map((scene: ObsSceneListEntry) => ({ sceneName: String(scene.sceneName ?? "") }));
             }
             case "obs.listSceneItems": {
                 const sceneName = this.requireString(message.payload?.sceneName, "sceneName");
-                const result = await this.obs.call("GetSceneItemList", { sceneName });
-                return result.sceneItems.map(sceneItem => ({
-                    sceneItemId: Number(sceneItem.sceneItemId),
+                const result = await this.obs.call("GetSceneItemList", { sceneName }) as ObsSceneItemListResponse;
+                return result.sceneItems.map((sceneItem: ObsSceneItemEntry) => ({
+                    sceneItemId: Number(sceneItem.sceneItemId ?? NaN),
                     sourceName: String(sceneItem.sourceName ?? ""),
                     enabled: Boolean(sceneItem.sceneItemEnabled),
                 } satisfies ObsRelaySceneItem));
@@ -166,8 +197,8 @@ class LocalObsAgent {
                 const sceneName = this.requireString(payload?.sceneName, "sceneName");
                 const sourceName = this.requireString(payload?.sourceName, "sourceName");
                 const visible = this.requireBoolean(payload?.visible, "visible");
-                const items = await this.obs.call("GetSceneItemList", { sceneName });
-                const targetItem = items.sceneItems.find(item => String(item.sourceName ?? "").toLowerCase() === sourceName.toLowerCase());
+                const items = await this.obs.call("GetSceneItemList", { sceneName }) as ObsSceneItemListResponse;
+                const targetItem = items.sceneItems.find((item: ObsSceneItemEntry) => String(item.sourceName ?? "").toLowerCase() === sourceName.toLowerCase());
                 if (!targetItem) {
                     throw new Error(`Source '${sourceName}' not found in scene '${sceneName}'.`);
                 }
@@ -207,9 +238,9 @@ class LocalObsAgent {
             return;
         }
 
-        const connectResult = await this.obs.connect(resolvedObsUrl, obsPassword);
+        const connectResult = await this.obs.connect(resolvedObsUrl, obsPassword) as ObsConnectResponse;
         this.connectedToObs = true;
-        this.lastWsVersion = connectResult.obsWebSocketVersion;
+        this.lastWsVersion = connectResult.obsWebSocketVersion ?? null;
         this.obs.on("ConnectionClosed", () => {
             this.connectedToObs = false;
         });
