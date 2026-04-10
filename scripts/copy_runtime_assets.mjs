@@ -7,6 +7,10 @@ const copyTargets = [
     sourceDir: path.join(rootDir, "src", "locales"),
     targetDir: path.join(rootDir, "dist", "locales"),
   },
+  {
+    sourceDir: path.join(rootDir, "sql"),
+    targetDir: path.join(rootDir, "dist", "sql"),
+  },
 ];
 
 for (const target of copyTargets) {

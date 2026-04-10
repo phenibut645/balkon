@@ -12,11 +12,13 @@ Written in Node.js using mysql2 for the database and discord.js/rest for communi
    `Copy-Item .env.dev.example .env.dev`
    `Copy-Item .env.prod.example .env.prod`
 3. Fill in Discord, MySQL and Twitch credentials in the copied files.
-4. Initialize the database schema if the database is empty:
+4. Build the bot:
+   `npm run build`
+5. Initialize the database schema if the database is empty:
    `npm run db:init:dev`
-5. Run the bot in development mode:
+6. Run the bot in development mode:
    `npm run dev`
-6. Register slash commands when needed:
+7. Register slash commands when needed:
    `npm run dev-deploy`
 
 ## Production Start

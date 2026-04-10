@@ -18,7 +18,17 @@ if (!host || !user || !password || !database) {
   process.exit(1);
 }
 
-const schemaPath = path.join(rootDir, "sql", "tables.sql");
+const candidateSchemaPaths = [
+  path.join(rootDir, "sql", "tables.sql"),
+  path.join(rootDir, "dist", "sql", "tables.sql"),
+];
+const schemaPath = candidateSchemaPaths.find(candidatePath => fs.existsSync(candidatePath));
+
+if (!schemaPath) {
+  console.error(`Schema file not found. Checked: ${candidateSchemaPaths.join(", ")}`);
+  process.exit(1);
+}
+
 const rawSchema = fs.readFileSync(schemaPath, "utf-8");
 const sanitizedSchema = rawSchema
   .split(/\r?\n/)
@@ -41,7 +51,7 @@ const connection = await mysql.createConnection({
 
 try {
   await connection.query(sanitizedSchema);
-  console.log(`Schema initialized for database '${database}' using ${envFilePath}`);
+  console.log(`Schema initialized for database '${database}' using ${schemaPath}`);
 } finally {
   await connection.end();
 }
