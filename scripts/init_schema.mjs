@@ -41,17 +41,52 @@ const sanitizedSchema = rawSchema
   })
   .join("\n");
 
+const statements = sanitizedSchema
+  .split(/;\s*(?:\r?\n|$)/)
+  .map(statement => statement.trim())
+  .filter(Boolean);
+
+const streamersStatementIndex = statements.findIndex(statement => /^CREATE TABLE streamers\s*\(/i.test(statement));
+const guildStreamersStatementIndex = statements.findIndex(statement => /^CREATE TABLE guild_streamers\s*\(/i.test(statement));
+
+if (streamersStatementIndex !== -1 && guildStreamersStatementIndex !== -1 && streamersStatementIndex > guildStreamersStatementIndex) {
+  const [streamersStatement] = statements.splice(streamersStatementIndex, 1);
+  statements.splice(guildStreamersStatementIndex, 0, streamersStatement);
+}
+
 const connection = await mysql.createConnection({
   host,
   user,
   password,
   database,
-  multipleStatements: true,
 });
 
 try {
-  await connection.query(sanitizedSchema);
+  for (const statement of statements) {
+    try {
+      await connection.query(statement);
+    } catch (error) {
+      if (isIgnorableSchemaError(error)) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
   console.log(`Schema initialized for database '${database}' using ${schemaPath}`);
 } finally {
   await connection.end();
+}
+
+function isIgnorableSchemaError(error) {
+  if (!(error instanceof Error) || !("code" in error)) {
+    return false;
+  }
+
+  return [
+    "ER_TABLE_EXISTS_ERROR",
+    "ER_DUP_KEYNAME",
+    "ER_DUP_ENTRY",
+  ].includes(String(error.code));
 }
