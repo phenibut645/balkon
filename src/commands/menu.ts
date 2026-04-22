@@ -16,7 +16,7 @@ import {
     UserSelectMenuBuilder,
 } from "discord.js";
 import { DEVELOPER_DISCORD_ID } from "../config.js";
-import { canViewForeignInventory, getBotAdminDashboardStats, getBotContributorIds, getFounderDashboardStats, isBotAdmin, isBotContributor, isBotOwner, isGuildFounder, updateBotContributor } from "../core/BotAdmin.js";
+import { canViewForeignInventory, getBotAdminDashboardStats, getBotContributorIds, getFounderBootstrapAudit, getFounderDashboardStats, isBotAdmin, isBotContributor, isBotOwner, isGuildFounder, updateBotContributor } from "../core/BotAdmin.js";
 import { dataBaseHandler, DataBaseHandler } from "../core/DataBaseHandler.js";
 import { localeService } from "../core/LocaleService.js";
 import { ObsMediaAction, obsService } from "../core/ObsService.js";
@@ -28,9 +28,9 @@ import { CommandDTO } from "../dto/CommandDTO.js";
 import { CommandAccessLevels, MembersDB } from "../types/database.types.js";
 import { LocalesCodes, supportedLocales } from "../types/locales.type.js";
 import { ButtonExecutionFunc, CommandName, ModalsExecutionFunc, StringSelectMenuExecutionFunc, UserSelectMenuExecutionFunc } from "../types/command.type.js";
-import { t } from "../utils/i18n.js";
+import { normalizeLocale, t } from "../utils/i18n.js";
 
-type MenuScreen = "home" | "economy" | "collection" | "profile" | "admin" | "contributors" | "founder" | "admin_items" | "admin_rarities" | "balance" | "inventory" | "craft" | "market" | "botshop" | "obs";
+type MenuScreen = "home" | "locale_onboarding" | "economy" | "collection" | "profile" | "admin" | "contributors" | "founder" | "founder_audit" | "admin_items" | "admin_rarities" | "balance" | "inventory" | "craft" | "market" | "botshop" | "obs";
 type MarketFilter = "all" | "own" | "foreign";
 type MenuComponentInteraction = ButtonInteraction | StringSelectMenuInteraction | UserSelectMenuInteraction;
 
@@ -84,6 +84,7 @@ export default class MenuCommand extends Command {
     private readonly adminButton = new CommandDTO(this.commandName, "admin");
     private readonly contributorsButton = new CommandDTO(this.commandName, "contributors");
     private readonly founderButton = new CommandDTO(this.commandName, "founder");
+    private readonly founderAuditButton = new CommandDTO(this.commandName, "founder_audit");
     private readonly adminItemsButton = new CommandDTO(this.commandName, "admin_items");
     private readonly adminRaritiesButton = new CommandDTO(this.commandName, "admin_rarities");
     private readonly obsButton = new CommandDTO(this.commandName, "obs");
@@ -158,6 +159,7 @@ export default class MenuCommand extends Command {
         this.buttons.set(this.adminButton.toString(), this.showAdmin);
         this.buttons.set(this.contributorsButton.toString(), this.showContributors);
         this.buttons.set(this.founderButton.toString(), this.showFounder);
+        this.buttons.set(this.founderAuditButton.toString(), this.showFounderAudit);
         this.buttons.set(this.adminItemsButton.toString(), this.showAdminItems);
         this.buttons.set(this.adminRaritiesButton.toString(), this.showAdminRarities);
         this.buttons.set(this.obsButton.toString(), this.showObs);
@@ -219,8 +221,16 @@ export default class MenuCommand extends Command {
     }
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        const locale = await this.getLocale(interaction.user.id);
+        await this.openMenu(interaction, "home", true);
+    }
+
+    async openMenu(interaction: ChatInputCommandInteraction, initialScreen: MenuScreen = "home", enforceLocaleOnboarding = false): Promise<void> {
+        const shouldShowOnboarding = await this.shouldShowLocaleOnboarding(interaction.user.id, enforceLocaleOnboarding);
+        const locale = shouldShowOnboarding
+            ? normalizeLocale(interaction.locale ?? interaction.guildLocale ?? undefined)
+            : await this.getLocale(interaction.user.id);
         const state = this.createDefaultSession(interaction.user.id, interaction.guildId ?? undefined);
+        state.screen = shouldShowOnboarding ? "locale_onboarding" : initialScreen;
         this.persistSession(interaction.user.id, state);
         await interaction.reply({
             ...(await this.renderState(interaction.user.id, locale, state)),
@@ -229,7 +239,10 @@ export default class MenuCommand extends Command {
     }
 
     private showHome: ButtonExecutionFunc = async (interaction) => {
-        await this.setScreenAndRender(interaction.user.id, interaction, "home");
+        const state = this.createDefaultSession(interaction.user.id, interaction.guildId ?? this.readSession(interaction.user.id).guildId);
+        state.screen = "home";
+        this.persistSession(interaction.user.id, state);
+        await this.updateRendered(interaction.user.id, interaction, state);
     };
 
     private showEconomy: ButtonExecutionFunc = async (interaction) => {
@@ -334,6 +347,17 @@ export default class MenuCommand extends Command {
         await this.setScreenAndRender(interaction.user.id, interaction, "founder");
     };
 
+    private showFounderAudit: ButtonExecutionFunc = async (interaction) => {
+        const state = this.readSession(interaction.user.id);
+        const locale = await this.getLocale(interaction.user.id);
+        if (!await isGuildFounder(interaction.user.id, state.guildId)) {
+            await interaction.reply({ content: t(locale, "menu.messages.founder_only"), flags: ["Ephemeral"] });
+            return;
+        }
+
+        await this.setScreenAndRender(interaction.user.id, interaction, "founder_audit");
+    };
+
     private showAdminItems: ButtonExecutionFunc = async (interaction) => {
         if (!await isBotContributor(interaction.user.id)) {
             const locale = await this.getLocale(interaction.user.id);
@@ -395,7 +419,13 @@ export default class MenuCommand extends Command {
         const response = await localeService.setMemberLocale(interaction.user.id, nextLocale);
         const locale = response.success ? response.data : await this.getLocale(interaction.user.id);
         const state = this.readSession(interaction.user.id);
-        await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "menu.messages.locale_updated", {
+        const wasOnboarding = state.screen === "locale_onboarding";
+        if (wasOnboarding) {
+            state.screen = "home";
+            this.persistSession(interaction.user.id, state);
+        }
+
+        await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, wasOnboarding ? "menu.messages.locale_onboarding_saved" : "menu.messages.locale_updated", {
             locale: t(locale, `menu.locale_names.${locale}`),
         })));
     };
@@ -1248,6 +1278,8 @@ export default class MenuCommand extends Command {
 
     private async renderState(userId: string, locale: LocalesCodes, state: MenuSessionState, notice?: string) {
         switch (state.screen) {
+            case "locale_onboarding":
+                return this.renderLocaleOnboarding(locale, notice);
             case "economy":
                 return this.renderEconomy(userId, locale);
             case "collection":
@@ -1258,6 +1290,8 @@ export default class MenuCommand extends Command {
                 return this.renderContributors(userId, locale, state, notice);
             case "founder":
                 return this.renderFounder(userId, locale, state, notice);
+            case "founder_audit":
+                return this.renderFounderAudit(userId, locale, state, notice);
             case "admin_items":
                 return this.renderAdminItems(userId, locale, state, notice);
             case "admin_rarities":
@@ -1283,7 +1317,6 @@ export default class MenuCommand extends Command {
     }
 
     private async renderHome(userId: string, locale: LocalesCodes, notice?: string) {
-        const adminAccess = await isBotContributor(userId);
         const founderAccess = await isGuildFounder(userId, this.readSession(userId).guildId);
         const counts = await this.getMenuOverviewCounts(userId, locale);
         return {
@@ -1317,15 +1350,40 @@ export default class MenuCommand extends Command {
                         "",
                         `👤 **${t(locale, "menu.categories.profile_title")}**`,
                         t(locale, "menu.categories.profile_body"),
-                        adminAccess ? "" : null,
-                        adminAccess ? `🧰 **${t(locale, "menu.categories.admin_title")}**` : null,
-                        adminAccess ? t(locale, "menu.categories.admin_body") : null,
                         founderAccess ? "" : null,
                         founderAccess ? `🏰 **${t(locale, "menu.categories.founder_title")}**` : null,
                         founderAccess ? t(locale, "menu.categories.founder_body") : null,
                     ].filter(Boolean).join("\n")),
             ],
-            components: this.buildHomeComponents(locale, adminAccess, founderAccess),
+            components: this.buildHomeComponents(locale, founderAccess),
+        };
+    }
+
+    private renderLocaleOnboarding(locale: LocalesCodes, notice?: string) {
+        return {
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(0xc7c2e8)
+                    .setTitle(`🌐 ${t(locale, "menu.panels.locale_onboarding_title")}`)
+                    .setDescription([
+                        notice ? `> ${notice}` : null,
+                        t(locale, "menu.panels.locale_onboarding_description"),
+                        "",
+                        t(locale, "menu.panels.locale_onboarding_hint"),
+                    ].filter(Boolean).join("\n")),
+            ],
+            components: [
+                new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(this.localeSelect.toString())
+                        .setPlaceholder(t(locale, "menu.selects.locale"))
+                        .addOptions(supportedLocales.map(code => ({
+                            label: t(locale, `menu.locale_names.${code}`),
+                            value: code,
+                            default: code === locale,
+                        })))
+                ),
+            ],
         };
     }
 
@@ -1591,6 +1649,18 @@ export default class MenuCommand extends Command {
                         "",
                         `**${t(locale, "menu.panels.admin_obs_settings_title")}**`,
                         stats.obsSettings.length ? stats.obsSettings.map(setting => `${setting.setting_key}: ${setting.setting_value ? "set" : "empty"}`).join("\n") : t(locale, "menu.panels.admin_obs_settings_empty"),
+                        "",
+                        `**${t(locale, "menu.panels.admin_bootstrap_title")}**`,
+                        stats.bootstrapStatuses.length
+                            ? stats.bootstrapStatuses.map(status => t(locale, "menu.panels.admin_bootstrap_line", {
+                                guild: status.guildName ?? status.guildId,
+                                source: status.source,
+                                status: t(locale, `menu.common.${status.status === "ok" ? "yes" : "no"}`),
+                                channels: `${status.syncedChannels ?? 0}/${status.removedChannels ?? 0}`,
+                                roles: `${status.syncedRoles ?? 0}/${status.removedRoles ?? 0}`,
+                                logs: String(status.configuredLogChannels ?? 0),
+                            })).join("\n")
+                            : t(locale, "menu.panels.admin_bootstrap_empty"),
                     ].join("\n")),
                 new EmbedBuilder()
                     .setColor(0xe7c9b6)
@@ -1792,11 +1862,84 @@ export default class MenuCommand extends Command {
             ],
             components: [
                 new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    this.createButton(this.founderAuditButton, t(locale, "menu.buttons.founder_audit"), ButtonStyle.Primary, "🧾"),
                     this.createButton(new CommandDTO(this.commandName, "founder_ban_placeholder"), t(locale, "menu.buttons.founder_ban"), ButtonStyle.Secondary, "🔨", true),
                     this.createButton(new CommandDTO(this.commandName, "founder_moderation_placeholder"), t(locale, "menu.buttons.founder_moderation"), ButtonStyle.Secondary, "🛡️", true),
+                ),
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
                     this.createButton(this.refreshButton, t(locale, "menu.buttons.refresh"), ButtonStyle.Secondary, "🔄"),
                 ),
                 this.buildBackCategoryRow(locale, this.adminButton),
+            ],
+        };
+    }
+
+    private async renderFounderAudit(userId: string, locale: LocalesCodes, state: MenuSessionState, notice?: string) {
+        if (!state.guildId || !await isGuildFounder(userId, state.guildId)) {
+            return this.simplePanel(t(locale, "menu.panels.founder_audit_title"), t(locale, "menu.messages.founder_only"), locale, [this.buildBackCategoryRow(locale, this.founderButton)]);
+        }
+
+        const audit = await getFounderBootstrapAudit(state.guildId);
+        const latestStatus = audit.latestBootstrapStatus;
+        const lastStatusLine = latestStatus
+            ? t(locale, "menu.panels.founder_audit_last_status", {
+                source: latestStatus.source,
+                status: t(locale, `menu.common.${latestStatus.status === "ok" ? "yes" : "no"}`),
+                channels: String(latestStatus.syncedChannels ?? 0),
+                removed_channels: String(latestStatus.removedChannels ?? 0),
+                roles: String(latestStatus.syncedRoles ?? 0),
+                removed_roles: String(latestStatus.removedRoles ?? 0),
+                logs: String(latestStatus.configuredLogChannels ?? 0),
+            })
+            : t(locale, "menu.panels.founder_audit_status_empty");
+
+        return {
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(0xd98c5f)
+                    .setTitle(`🧾 ${t(locale, "menu.panels.founder_audit_title")}`)
+                    .setDescription([
+                        notice ? `> ${notice}` : null,
+                        t(locale, "menu.panels.founder_audit_description"),
+                        "",
+                        t(locale, "menu.panels.founder_audit_summary", {
+                            guild_id: audit.guildId,
+                            guild_db_id: audit.guildDbId ? String(audit.guildDbId) : t(locale, "menu.common.not_available"),
+                            owner_recorded: t(locale, `menu.common.${audit.ownerRecorded ? "yes" : "no"}`),
+                            members: String(audit.guildMemberCount),
+                            channels: String(audit.guildChannelCount),
+                            roles: String(audit.guildRoleCount),
+                        }),
+                        "",
+                        lastStatusLine,
+                    ].filter(Boolean).join("\n")),
+                new EmbedBuilder()
+                    .setColor(0xe2a980)
+                    .setTitle(t(locale, "menu.panels.founder_audit_links_title"))
+                    .setDescription([
+                        `**${t(locale, "menu.panels.founder_audit_log_bindings_title")}**`,
+                        audit.logBindings.length
+                            ? audit.logBindings.map(binding => `• ${binding.logType}: <#${binding.channelId}> (${binding.channelId})`).join("\n")
+                            : t(locale, "menu.panels.founder_audit_log_bindings_empty"),
+                        "",
+                        `**${t(locale, "menu.panels.founder_audit_channels_title")}**`,
+                        audit.channelIds.length
+                            ? audit.channelIds.slice(0, 10).map(channelId => `• <#${channelId}> (${channelId})`).join("\n")
+                            : t(locale, "menu.panels.founder_audit_channels_empty"),
+                        audit.channelIds.length > 10 ? t(locale, "menu.panels.founder_audit_more_channels", { count: String(audit.channelIds.length - 10) }) : null,
+                        "",
+                        `**${t(locale, "menu.panels.founder_audit_roles_title")}**`,
+                        audit.roleIds.length
+                            ? audit.roleIds.slice(0, 10).map(roleId => `• <@&${roleId}> (${roleId})`).join("\n")
+                            : t(locale, "menu.panels.founder_audit_roles_empty"),
+                        audit.roleIds.length > 10 ? t(locale, "menu.panels.founder_audit_more_roles", { count: String(audit.roleIds.length - 10) }) : null,
+                    ].filter(Boolean).join("\n")),
+            ],
+            components: [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    this.createButton(this.refreshButton, t(locale, "menu.buttons.refresh"), ButtonStyle.Secondary, "🔄"),
+                ),
+                this.buildBackCategoryRow(locale, this.founderButton),
             ],
         };
     }
@@ -1869,21 +2012,13 @@ export default class MenuCommand extends Command {
         };
     }
 
-    private buildHomeComponents(locale: LocalesCodes, admin: boolean, founder: boolean) {
+    private buildHomeComponents(locale: LocalesCodes, founder: boolean) {
         return [
             new ActionRowBuilder<ButtonBuilder>().addComponents(
                 this.createButton(this.collectionButton, t(locale, "menu.buttons.collection"), ButtonStyle.Primary, "🎒"),
                 this.createButton(this.economyButton, t(locale, "menu.buttons.economy"), ButtonStyle.Secondary, "🪙"),
                 this.createButton(this.profileButton, t(locale, "menu.buttons.profile"), ButtonStyle.Success, "👤"),
-                this.createButton(this.adminCategoryButton, t(locale, "menu.buttons.admin_tools"), ButtonStyle.Secondary, "🧰", !admin),
                 this.createButton(this.founderButton, t(locale, "menu.buttons.founder"), ButtonStyle.Secondary, "🏰", !founder),
-            ),
-            new ActionRowBuilder<ButtonBuilder>().addComponents(
-                this.createButton(this.inventoryButton, t(locale, "menu.buttons.inventory"), ButtonStyle.Secondary, "🎁"),
-                this.createButton(this.balanceButton, t(locale, "menu.buttons.balance"), ButtonStyle.Secondary, "💰"),
-                this.createButton(this.marketButton, t(locale, "menu.buttons.market"), ButtonStyle.Primary, "🛒"),
-                this.createButton(this.botShopButton, t(locale, "menu.buttons.botshop"), ButtonStyle.Secondary, "🏪"),
-                this.createButton(this.refreshButton, t(locale, "menu.buttons.refresh"), ButtonStyle.Secondary, "🔄"),
             ),
         ];
     }
@@ -2641,6 +2776,10 @@ export default class MenuCommand extends Command {
 
     private readSession(userId: string): MenuSessionState {
         const existing = commandSessionHandler.getSession(userId, this.commandName) as Partial<MenuSessionState> | undefined;
+        if (existing) {
+            commandSessionHandler.touchSession(userId, this.commandName);
+        }
+
         return {
             ...this.createDefaultSession(userId),
             ...(existing ?? {}),
@@ -2772,11 +2911,23 @@ export default class MenuCommand extends Command {
     }
 
     private async updateComponentReply(interaction: MenuComponentInteraction, payloadFactory: () => Promise<{ embeds?: EmbedBuilder[]; components?: any[] }>) {
+        if (!commandSessionHandler.beginInteraction(interaction.user.id, this.commandName)) {
+            if (!interaction.deferred && !interaction.replied) {
+                await interaction.deferUpdate();
+            }
+
+            return;
+        }
+
         if (!interaction.deferred && !interaction.replied) {
             await interaction.deferUpdate();
         }
 
-        await interaction.editReply(await payloadFactory());
+        try {
+            await interaction.editReply(await payloadFactory());
+        } finally {
+            commandSessionHandler.endInteraction(interaction.user.id, this.commandName);
+        }
     }
 
     private async replyToComponentInteraction(interaction: MenuComponentInteraction, content: string) {
@@ -2789,25 +2940,49 @@ export default class MenuCommand extends Command {
     }
 
     private async respondAfterModal(interaction: ModalSubmitInteraction, payloadFactory: () => Promise<{ embeds?: EmbedBuilder[]; components?: any[] }>) {
-        if (interaction.isFromMessage()) {
+        if (!commandSessionHandler.beginInteraction(interaction.user.id, this.commandName)) {
             if (!interaction.deferred && !interaction.replied) {
-                await interaction.deferUpdate();
+                if (interaction.isFromMessage()) {
+                    await interaction.deferUpdate();
+                } else {
+                    await interaction.deferReply({ flags: ["Ephemeral"] });
+                }
             }
 
-            await interaction.editReply(await payloadFactory());
             return;
         }
 
-        if (!interaction.deferred && !interaction.replied) {
-            await interaction.deferReply({ flags: ["Ephemeral"] });
+        if (interaction.isFromMessage()) {
+            try {
+                if (!interaction.deferred && !interaction.replied) {
+                    await interaction.deferUpdate();
+                }
+
+                await interaction.editReply(await payloadFactory());
+                return;
+            } finally {
+                commandSessionHandler.endInteraction(interaction.user.id, this.commandName);
+            }
         }
 
-        await interaction.editReply(await payloadFactory());
+        try {
+            if (!interaction.deferred && !interaction.replied) {
+                await interaction.deferReply({ flags: ["Ephemeral"] });
+            }
+
+            await interaction.editReply(await payloadFactory());
+        } finally {
+            commandSessionHandler.endInteraction(interaction.user.id, this.commandName);
+        }
     }
 
     private async getLocale(discordUserId: string): Promise<LocalesCodes> {
         const response = await localeService.getMemberLocale(discordUserId);
         return response.data;
+    }
+
+    private async shouldShowLocaleOnboarding(discordUserId: string, enforceLocaleOnboarding: boolean): Promise<boolean> {
+        return enforceLocaleOnboarding && !await localeService.hasExplicitLocaleSelection(discordUserId);
     }
 
     private async getBalanceSummary(userId: string, locale: LocalesCodes): Promise<string> {

@@ -6,6 +6,7 @@ import { BotSettingsDB, MemberStatuses } from "../types/database.types.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
 
 const BOT_CONTRIBUTORS_SETTING_KEY = "bot_contributor_ids";
+const GUILD_BOOTSTRAP_STATUS_PREFIX = "guild_bootstrap_status:";
 
 interface BotAdminStatsRow extends RowDataPacket {
     guilds_count: number;
@@ -28,10 +29,66 @@ interface FounderStatsRow extends RowDataPacket {
     banned_count: number;
 }
 
+interface FounderAuditSummaryRow extends RowDataPacket {
+    guild_db_id: number | null;
+    guild_owner_member_id: number | null;
+    guild_member_count: number;
+    guild_role_count: number;
+    guild_channel_count: number;
+    log_channel_count: number;
+}
+
+interface FounderAuditLogBindingRow extends RowDataPacket {
+    log_type_name: string;
+    ds_channel_id: string;
+}
+
+interface FounderAuditChannelRow extends RowDataPacket {
+    ds_channel_id: string;
+}
+
+interface FounderAuditRoleRow extends RowDataPacket {
+    ds_role_id: string;
+}
+
 interface ObsSettingsRow extends RowDataPacket {
     setting_key: string;
     setting_value: string | null;
     updated_at: Date | null;
+}
+
+interface BootstrapStatusSettingRow extends RowDataPacket {
+    setting_key: string;
+    setting_value: string | null;
+    updated_at: Date | null;
+}
+
+export interface GuildBootstrapStatus {
+    guildId: string;
+    guildName?: string;
+    source: "guildCreate" | "clientReady";
+    status: "ok" | "error";
+    syncedChannels?: number;
+    removedChannels?: number;
+    syncedRoles?: number;
+    removedRoles?: number;
+    configuredLogChannels?: number;
+    bootstrapChannelId?: string | null;
+    message?: string;
+    updatedAt: string;
+}
+
+export interface FounderBootstrapAudit {
+    guildId: string;
+    guildDbId: number | null;
+    ownerRecorded: boolean;
+    guildMemberCount: number;
+    guildRoleCount: number;
+    guildChannelCount: number;
+    logBindings: Array<{ logType: string; channelId: string }>;
+    channelIds: string[];
+    roleIds: string[];
+    latestBootstrapStatus: GuildBootstrapStatus | null;
 }
 
 function parseContributorIds(rawValue: string | null | undefined): string[] {
@@ -108,6 +165,7 @@ export async function getBotAdminDashboardStats(): Promise<{
     counts: BotAdminStatsRow;
     contributors: string[];
     obsSettings: ObsSettingsRow[];
+    bootstrapStatuses: GuildBootstrapStatus[];
 }> {
     const [countRows] = await pool.query<BotAdminStatsRow[]>(
         `SELECT
@@ -130,11 +188,45 @@ export async function getBotAdminDashboardStats(): Promise<{
         [BOT_CONTRIBUTORS_SETTING_KEY]
     );
 
+    const [bootstrapRows] = await pool.query<BootstrapStatusSettingRow[]>(
+        `SELECT setting_key, setting_value, updated_at
+         FROM bot_settings
+         WHERE setting_key LIKE ?
+         ORDER BY updated_at DESC
+         LIMIT 10`,
+        [`${GUILD_BOOTSTRAP_STATUS_PREFIX}%`]
+    );
+
     return {
         counts: countRows[0],
         contributors: await getBotContributorIds(),
         obsSettings: obsRows,
+        bootstrapStatuses: bootstrapRows.flatMap(row => {
+            if (!row.setting_value) {
+                return [];
+            }
+
+            try {
+                const parsed = JSON.parse(row.setting_value) as GuildBootstrapStatus;
+                return [{
+                    ...parsed,
+                    guildId: parsed.guildId || row.setting_key.replace(GUILD_BOOTSTRAP_STATUS_PREFIX, ""),
+                    updatedAt: parsed.updatedAt || row.updated_at?.toISOString() || new Date().toISOString(),
+                }];
+            } catch {
+                return [];
+            }
+        }),
     };
+}
+
+export async function saveGuildBootstrapStatus(status: GuildBootstrapStatus): Promise<void> {
+    await pool.query(
+        `INSERT INTO bot_settings (setting_key, setting_value)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+        [`${GUILD_BOOTSTRAP_STATUS_PREFIX}${status.guildId}`, JSON.stringify(status)]
+    );
 }
 
 export async function isGuildFounder(userId: string, guildDiscordId?: string): Promise<boolean> {
@@ -167,6 +259,87 @@ export async function getFounderDashboardStats(guildDiscordId: string): Promise<
     );
 
     return rows[0];
+}
+
+export async function getFounderBootstrapAudit(guildDiscordId: string): Promise<FounderBootstrapAudit> {
+    const [summaryRows] = await pool.query<FounderAuditSummaryRow[]>(
+        `SELECT
+            g.id AS guild_db_id,
+            (SELECT gm.id
+             FROM guild_members gm
+             WHERE gm.guild_id = g.id AND gm.member_status_id = ?
+             LIMIT 1) AS guild_owner_member_id,
+            (SELECT COUNT(*) FROM guild_members gm WHERE gm.guild_id = g.id) AS guild_member_count,
+            (SELECT COUNT(*) FROM guild_roles gr WHERE gr.guild_id = g.id) AS guild_role_count,
+            (SELECT COUNT(*) FROM guild_channels gc WHERE gc.guild_id = g.id) AS guild_channel_count,
+            (SELECT COUNT(*) FROM logs_channels lc WHERE lc.guild_id = g.id) AS log_channel_count
+         FROM guilds g
+         WHERE g.ds_guild_id = ?
+         LIMIT 1`,
+        [MemberStatuses.GuildOwner, guildDiscordId]
+    );
+
+    const [bindingRows] = await pool.query<FounderAuditLogBindingRow[]>(
+        `SELECT lt.name AS log_type_name, lc.ds_channel_id
+         FROM logs_channels lc
+         INNER JOIN guilds g ON g.id = lc.guild_id
+         INNER JOIN log_types lt ON lt.id = lc.log_type_id
+         WHERE g.ds_guild_id = ?
+         ORDER BY lt.name ASC`,
+        [guildDiscordId]
+    );
+
+    const [channelRows] = await pool.query<FounderAuditChannelRow[]>(
+        `SELECT gc.ds_channel_id
+         FROM guild_channels gc
+         INNER JOIN guilds g ON g.id = gc.guild_id
+         WHERE g.ds_guild_id = ?
+         ORDER BY gc.id ASC
+         LIMIT 25`,
+        [guildDiscordId]
+    );
+
+    const [roleRows] = await pool.query<FounderAuditRoleRow[]>(
+        `SELECT gr.ds_role_id
+         FROM guild_roles gr
+         INNER JOIN guilds g ON g.id = gr.guild_id
+         WHERE g.ds_guild_id = ?
+         ORDER BY gr.id ASC
+         LIMIT 25`,
+        [guildDiscordId]
+    );
+
+    const [bootstrapRows] = await pool.query<BootstrapStatusSettingRow[]>(
+        `SELECT setting_key, setting_value, updated_at
+         FROM bot_settings
+         WHERE setting_key = ?
+         LIMIT 1`,
+        [`${GUILD_BOOTSTRAP_STATUS_PREFIX}${guildDiscordId}`]
+    );
+
+    const latestBootstrapStatus = bootstrapRows.length && bootstrapRows[0].setting_value
+        ? (() => {
+            try {
+                return JSON.parse(bootstrapRows[0].setting_value!) as GuildBootstrapStatus;
+            } catch {
+                return null;
+            }
+        })()
+        : null;
+
+    const summary = summaryRows[0];
+    return {
+        guildId: guildDiscordId,
+        guildDbId: summary?.guild_db_id ?? null,
+        ownerRecorded: Boolean(summary?.guild_owner_member_id),
+        guildMemberCount: Number(summary?.guild_member_count ?? 0),
+        guildRoleCount: Number(summary?.guild_role_count ?? 0),
+        guildChannelCount: Number(summary?.guild_channel_count ?? 0),
+        logBindings: bindingRows.map(row => ({ logType: row.log_type_name, channelId: row.ds_channel_id })),
+        channelIds: channelRows.map(row => row.ds_channel_id),
+        roleIds: roleRows.map(row => row.ds_role_id),
+        latestBootstrapStatus,
+    };
 }
 
 export async function ensureBotAdmin(

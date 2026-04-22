@@ -36,6 +36,22 @@ export function t(lang: LocalesCodes, key: string, variables?: Record<string, st
 
 export function normalizeLocale(value?: string | null): LocalesCodes {
     const normalizedValue = value?.trim().toLowerCase();
+    if (!normalizedValue) {
+        return Locales.EN;
+    }
+
+    if (normalizedValue.startsWith("ru")) {
+        return Locales.RU;
+    }
+
+    if (normalizedValue.startsWith("en")) {
+        return Locales.EN;
+    }
+
+    if (normalizedValue === "et" || normalizedValue.startsWith("et-") || normalizedValue.startsWith("est")) {
+        return Locales.EST;
+    }
+
     return supportedLocales.includes(normalizedValue as LocalesCodes)
         ? normalizedValue as LocalesCodes
         : Locales.EN;

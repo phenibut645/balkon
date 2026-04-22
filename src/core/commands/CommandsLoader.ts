@@ -2,6 +2,14 @@ import path from "path";
 import fs from "fs";
 import { Command } from "./Command.js";
 
+const DISABLED_SLASH_COMMANDS = new Set([
+  "balance",
+  "inventory",
+  "market",
+  "craft",
+  "obs",
+]);
+
 function isCommand(obj: any): obj is Command {
     return (
         obj &&
@@ -26,6 +34,10 @@ for (const file of commandFiles) {
 
   const commandInstance = new CommandClass();
   if(isCommand(commandInstance)) {
+    if (DISABLED_SLASH_COMMANDS.has(commandInstance.data.name)) {
+      continue;
+    }
+
     commands.set(commandInstance.data.name, commandInstance)
     slashCommands.push(commandInstance.data.toJSON())
   }

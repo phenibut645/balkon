@@ -12,6 +12,7 @@ import { guildCreateController } from "./events/guildCreate.js";
 import { guildDeleteController } from "./events/guildDelete.js";
 import { messageCreateController } from "./events/messageCreate.js";
 import { obsRelayService } from "./core/ObsRelayService.js";
+import { BalkonPlusSubscriptionService } from "./core/BalkonPlusSubscriptionService.js";
 
 const client = new Client({
   intents: [
@@ -40,12 +41,26 @@ const client = new Client({
   ]
 });
 
-client.once("clientReady", clientReadyController);
+const balkonPlusSubscriptionService = new BalkonPlusSubscriptionService(client);
+
+client.once("clientReady", async readyClient => {
+  await clientReadyController(readyClient);
+  await balkonPlusSubscriptionService.start();
+});
 
 client.on("interactionCreate", interactionCreateController);
 client.on("guildCreate", guildCreateController)
 client.on("guildDelete", guildDeleteController)
 client.on("messageCreate", messageCreateController)
+client.on("entitlementCreate", async entitlement => {
+  await balkonPlusSubscriptionService.handleEntitlementEvent(entitlement.userId, "entitlementCreate");
+});
+client.on("entitlementUpdate", async (_, entitlement) => {
+  await balkonPlusSubscriptionService.handleEntitlementEvent(entitlement.userId, "entitlementUpdate");
+});
+client.on("entitlementDelete", async entitlement => {
+  await balkonPlusSubscriptionService.handleEntitlementEvent(entitlement.userId, "entitlementDelete");
+});
 
 obsRelayService.start();
 

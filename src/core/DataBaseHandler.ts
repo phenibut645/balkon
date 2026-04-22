@@ -1,8 +1,18 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { CommandsDB, DataBaseTables, DefaultDBTable, GeneralSettingsDB, GuildMembersD, GuildsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
+import { CommandsDB, DataBaseTables, DefaultDBTable, GeneralSettingsDB, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, LogsChannelsDB, LogTypesDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
-import { Guild, Interaction } from "discord.js";
+import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
+
+export interface GuildBootstrapSummary {
+    guildId: number;
+    syncedChannels: number;
+    removedChannels: number;
+    syncedRoles: number;
+    removedRoles: number;
+    bootstrapChannelId: string | null;
+    configuredLogChannels: number;
+}
 
 export type PossibleErrorReason = "record_not_found" | "mysql_error" | "unknown";
 export type RelatedTo = "unknown" | DataBaseTables;
@@ -225,6 +235,59 @@ export class DataBaseHandler {
         }
     }
 
+    async ensureGuildBootstrap(guild: Guild): Promise<DBResponse<GuildBootstrapSummary>> {
+        try {
+            const guildRecordResponse = await this.ensureGuildRecord(guild);
+            if (DataBaseHandler.isFail(guildRecordResponse)) {
+                return guildRecordResponse;
+            }
+
+            const ownerResponse = await this.ensureGuildMemberStatus(guild.ownerId, guildRecordResponse.data.id, MemberStatuses.GuildOwner);
+            if (DataBaseHandler.isFail(ownerResponse)) {
+                return ownerResponse;
+            }
+
+            const channelIds = guild.channels.cache
+                .filter(channel => !channel.isThread() && channel.type !== ChannelType.GuildCategory)
+                .map(channel => channel.id);
+            const roleIds = guild.roles.cache
+                .filter(role => !role.managed)
+                .map(role => role.id);
+            const bootstrapChannelId = this.resolveBootstrapChannelId(guild);
+
+            const channelsResponse = await this.ensureGuildChannels(guildRecordResponse.data.id, channelIds);
+            if (DataBaseHandler.isFail(channelsResponse)) {
+                return channelsResponse;
+            }
+
+            const rolesResponse = await this.ensureGuildRoles(guildRecordResponse.data.id, roleIds);
+            if (DataBaseHandler.isFail(rolesResponse)) {
+                return rolesResponse;
+            }
+
+            const logChannelResponse = await this.ensureDefaultLogChannels(guildRecordResponse.data.id, bootstrapChannelId);
+            if (DataBaseHandler.isFail(logChannelResponse)) {
+                return logChannelResponse;
+            }
+
+            return {
+                success: true,
+                data: {
+                    guildId: guildRecordResponse.data.id,
+                    syncedChannels: channelsResponse.data.synced,
+                    removedChannels: channelsResponse.data.removed,
+                    syncedRoles: rolesResponse.data.synced,
+                    removedRoles: rolesResponse.data.removed,
+                    bootstrapChannelId,
+                    configuredLogChannels: logChannelResponse.data.configured,
+                }
+            };
+        }
+        catch (err: unknown) {
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
     async updateTable(
         table: DataBaseTables,
         column: string,
@@ -257,6 +320,323 @@ export class DataBaseHandler {
             }
         }
         catch(err: unknown){
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
+    private async ensureGuildRecord(guild: Guild | string): Promise<DBResponse<GuildsDB>> {
+        try {
+            const discordGuildId = guild instanceof Guild ? guild.id : guild;
+            const existingGuildResponse = await this.getFromTable<GuildsDB>("guilds", { ds_guild_id: discordGuildId });
+            if (DataBaseHandler.isFail(existingGuildResponse)) {
+                return existingGuildResponse;
+            }
+
+            if (existingGuildResponse.data.length) {
+                return {
+                    success: true,
+                    data: existingGuildResponse.data[0],
+                };
+            }
+
+            const addGuildResponse = await this.addGuildToDB(guild);
+            if (DataBaseHandler.isFail(addGuildResponse)) {
+                return addGuildResponse;
+            }
+
+            const createdGuildResponse = await this.getFromTable<GuildsDB>("guilds", { id: addGuildResponse.data.insertId });
+            if (DataBaseHandler.isFail(createdGuildResponse) || !createdGuildResponse.data.length) {
+                return DataBaseHandler.errorHandling(new Error("Created guild record was not found."));
+            }
+
+            return {
+                success: true,
+                data: createdGuildResponse.data[0],
+            };
+        }
+        catch (err: unknown) {
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
+    private async ensureGuildMemberStatus(discordUserId: string, guildId: number, memberStatusId: MemberStatuses): Promise<DBResponse<{ guildMemberId: number }>> {
+        try {
+            const memberResponse = await this.isMemberExists(discordUserId, true);
+            if (DataBaseHandler.isFail(memberResponse) || !memberResponse.data.memberId) {
+                return DataBaseHandler.isFail(memberResponse)
+                    ? memberResponse
+                    : DataBaseHandler.errorHandling(new Error("Unable to resolve member."));
+            }
+
+            const guildMemberResponse = await this.getFromTable<GuildMembersD>("guild_members", {
+                guild_id: guildId,
+                member_id: memberResponse.data.memberId,
+            });
+            if (DataBaseHandler.isFail(guildMemberResponse)) {
+                return guildMemberResponse;
+            }
+
+            if (guildMemberResponse.data.length) {
+                const guildMember = guildMemberResponse.data[0] as GuildMembersD & { member_status_id?: number };
+                if (guildMember.member_status_id !== memberStatusId) {
+                    const updateResponse = await this.updateTable("guild_members", "member_status_id", memberStatusId, { id: guildMember.id });
+                    if (DataBaseHandler.isFail(updateResponse)) {
+                        return updateResponse;
+                    }
+                }
+
+                return {
+                    success: true,
+                    data: {
+                        guildMemberId: guildMember.id,
+                    },
+                };
+            }
+
+            const insertResponse = await this.addRecords<GuildMembersD>([{
+                id: 0,
+                guild_id: guildId,
+                member_id: memberResponse.data.memberId,
+                member_status_id: memberStatusId,
+            }], "guild_members");
+            if (DataBaseHandler.isFail(insertResponse)) {
+                return insertResponse;
+            }
+
+            return {
+                success: true,
+                data: {
+                    guildMemberId: insertResponse.data.insertId,
+                },
+            };
+        }
+        catch (err: unknown) {
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
+    private async ensureGuildChannels(guildId: number, discordChannelIds: string[]): Promise<DBResponse<{ synced: number; removed: number }>> {
+        try {
+            const existingResponse = await this.getFromTable<GuildChannels>("guild_channels", { guild_id: guildId });
+            if (DataBaseHandler.isFail(existingResponse)) {
+                return existingResponse;
+            }
+
+            const existingIds = new Set(existingResponse.data.map(channel => channel.ds_channel_id));
+            const discordIdSet = new Set(discordChannelIds);
+            const channelsToInsert = discordChannelIds
+                .filter(channelId => !existingIds.has(channelId))
+                .map(channelId => ({
+                    id: 0,
+                    guild_id: guildId,
+                    ds_channel_id: channelId,
+                }));
+            const staleChannelIds = existingResponse.data
+                .filter(channel => !discordIdSet.has(channel.ds_channel_id))
+                .map(channel => channel.id);
+
+            if (staleChannelIds.length) {
+                const placeholders = staleChannelIds.map(() => "?").join(", ");
+                await pool.query(`DELETE FROM guild_channels WHERE id IN (${placeholders})`, staleChannelIds);
+            }
+
+            if (staleChannelIds.length || discordChannelIds.length) {
+                const activeChannelIds = discordChannelIds;
+                if (activeChannelIds.length) {
+                    const placeholders = activeChannelIds.map(() => "?").join(", ");
+                    await pool.query(
+                        `DELETE lc FROM logs_channels lc
+                         INNER JOIN guilds g ON g.id = lc.guild_id
+                         WHERE lc.guild_id = ? AND lc.ds_channel_id NOT IN (${placeholders})`,
+                        [guildId, ...activeChannelIds]
+                    );
+                } else {
+                    await pool.query(`DELETE FROM logs_channels WHERE guild_id = ?`, [guildId]);
+                }
+            }
+
+            if (channelsToInsert.length) {
+                const insertResponse = await this.addRecords<GuildChannels>(channelsToInsert, "guild_channels");
+                if (DataBaseHandler.isFail(insertResponse)) {
+                    return insertResponse;
+                }
+            }
+
+            return {
+                success: true,
+                data: { synced: channelsToInsert.length, removed: staleChannelIds.length },
+            };
+        }
+        catch (err: unknown) {
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
+    private async ensureGuildRoles(guildId: number, discordRoleIds: string[]): Promise<DBResponse<{ synced: number; removed: number }>> {
+        try {
+            const existingResponse = await this.getFromTable<GuildRolesDB>("guild_roles", { guild_id: guildId });
+            if (DataBaseHandler.isFail(existingResponse)) {
+                return existingResponse;
+            }
+
+            const existingIds = new Set(existingResponse.data.map(role => role.ds_role_id));
+            const discordIdSet = new Set(discordRoleIds);
+            const rolesToInsert = discordRoleIds
+                .filter(roleId => !existingIds.has(roleId))
+                .map(roleId => ({
+                    id: 0,
+                    guild_id: guildId,
+                    ds_role_id: roleId,
+                }));
+            const staleRoleIds = existingResponse.data
+                .filter(role => !discordIdSet.has(role.ds_role_id))
+                .map(role => role.id);
+
+            if (staleRoleIds.length) {
+                const placeholders = staleRoleIds.map(() => "?").join(", ");
+                await pool.query(`DELETE FROM guild_roles WHERE id IN (${placeholders})`, staleRoleIds);
+            }
+
+            if (rolesToInsert.length) {
+                const insertResponse = await this.addRecords<GuildRolesDB>(rolesToInsert, "guild_roles");
+                if (DataBaseHandler.isFail(insertResponse)) {
+                    return insertResponse;
+                }
+            }
+
+            return {
+                success: true,
+                data: { synced: rolesToInsert.length, removed: staleRoleIds.length },
+            };
+        }
+        catch (err: unknown) {
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
+    private resolveBootstrapChannelId(guild: Guild): string | null {
+        const me = guild.members.me;
+        const canSend = (channelId?: string | null): boolean => {
+            if (!channelId) {
+                return false;
+            }
+
+            const channel = guild.channels.cache.get(channelId);
+            if (!channel || !channel.isTextBased() || channel.isThread()) {
+                return false;
+            }
+
+            if (!me) {
+                return true;
+            }
+
+            return channel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages) ?? false;
+        };
+
+        if (canSend(guild.systemChannelId)) {
+            return guild.systemChannelId;
+        }
+
+        const fallbackChannel = guild.channels.cache.find(channel => {
+            if (!channel.isTextBased() || channel.isThread()) {
+                return false;
+            }
+
+            if (!me) {
+                return true;
+            }
+
+            return channel.permissionsFor(me)?.has(PermissionsBitField.Flags.SendMessages) ?? false;
+        });
+
+        return fallbackChannel?.id ?? null;
+    }
+
+    private async ensureDefaultLogChannels(guildId: number, channelId: string | null): Promise<DBResponse<{ configured: number }>> {
+        try {
+            if (!channelId) {
+                return {
+                    success: true,
+                    data: { configured: 0 },
+                };
+            }
+
+            const logTypeIds = await Promise.all([
+                this.ensureLogType("ban_logs"),
+                this.ensureLogType("mute_logs"),
+            ]);
+            if (logTypeIds.some(result => DataBaseHandler.isFail(result))) {
+                return logTypeIds.find(result => DataBaseHandler.isFail(result)) as DBResponse<{ configured: number }>;
+            }
+
+            let configured = 0;
+            for (const logTypeResult of logTypeIds) {
+                const logTypeId = (logTypeResult as DBResponse<InsertIdResponse | number> & { data: number }).data;
+                const existingResponse = await this.getFromTable<LogsChannelsDB>("logs_channels", {
+                    guild_id: guildId,
+                    log_type_id: logTypeId,
+                });
+                if (DataBaseHandler.isFail(existingResponse)) {
+                    return existingResponse;
+                }
+
+                if (!existingResponse.data.length) {
+                    const insertResponse = await this.addRecords<LogsChannelsDB>([{
+                        id: 0,
+                        guild_id: guildId,
+                        log_type_id: logTypeId,
+                        ds_channel_id: channelId,
+                    }], "logs_channels");
+                    if (DataBaseHandler.isFail(insertResponse)) {
+                        return insertResponse;
+                    }
+                    configured += 1;
+                    continue;
+                }
+
+                if (existingResponse.data[0].ds_channel_id !== channelId) {
+                    const updateResponse = await this.updateTable("logs_channels", "ds_channel_id", channelId, { id: existingResponse.data[0].id });
+                    if (DataBaseHandler.isFail(updateResponse)) {
+                        return updateResponse;
+                    }
+                }
+            }
+
+            return {
+                success: true,
+                data: { configured },
+            };
+        }
+        catch (err: unknown) {
+            return DataBaseHandler.errorHandling(err);
+        }
+    }
+
+    private async ensureLogType(name: string): Promise<DBResponse<number>> {
+        try {
+            const existingResponse = await this.getFromTable<LogTypesDB>("log_types", { name });
+            if (DataBaseHandler.isFail(existingResponse)) {
+                return existingResponse;
+            }
+
+            if (existingResponse.data.length) {
+                return {
+                    success: true,
+                    data: existingResponse.data[0].id,
+                };
+            }
+
+            const insertResponse = await this.addRecords<LogTypesDB>([{ id: 0, name }], "log_types");
+            if (DataBaseHandler.isFail(insertResponse)) {
+                return insertResponse;
+            }
+
+            return {
+                success: true,
+                data: insertResponse.data.insertId,
+            };
+        }
+        catch (err: unknown) {
             return DataBaseHandler.errorHandling(err);
         }
     }
