@@ -109,20 +109,28 @@ Why this matters:
 - The bot no longer needs direct network access to the streamer's OBS.
 - OBS stays local to the streamer PC.
 - NAT and home-router limitations are avoided because the agent uses an outgoing connection.
+- This is the intended production model when the bot runs on a server and the streamer is on another network.
 
 Agent setup on the streamer PC:
 
 1. Copy `.env.agent.example` to `.env.agent`.
-2. Fill in `OBS_AGENT_RELAY_URL`, `OBS_AGENT_ID`, `OBS_AGENT_TOKEN`.
-3. Point local OBS connection to `OBS_WEBSOCKET_URL=ws://127.0.0.1:4455` and set password if needed.
-4. Start the local agent with `npm run agent`.
+2. Generate credentials from Discord with `/streamer agent_pair`.
+3. Fill in `OBS_AGENT_RELAY_URL`, `OBS_AGENT_ID`, `OBS_AGENT_TOKEN` using the generated values.
+4. Point `OBS_AGENT_RELAY_URL` to the public host or domain of your server, for example `ws://your-server-host:8787`.
+5. Point local OBS connection to `OBS_WEBSOCKET_URL=ws://127.0.0.1:4455` and set password if needed.
+6. Start the local agent with `npm run agent`.
 
 Bot-side binding flow:
 
 1. Register the streamer with `/streamer register`.
-2. Bind the streamer's agent with `/streamer agent_set`.
-3. Check status with `/streamer agent_show` or `/streamer list`.
-4. Use `/serviceuse` and service items will route OBS actions through that streamer's local agent.
+2. Generate remote agent credentials with `/streamer agent_pair`.
+3. Put the generated values into `.env.agent` on the streamer PC.
+4. Start the agent and check status with `/streamer agent_show` or `/streamer list`.
+5. Use `/serviceuse` and service items will route OBS actions through that streamer's local agent.
+
+Manual fallback still exists:
+
+- If you want to bring your own stable `agent_id` and `agent_token`, you can still use `/streamer agent_set`.
 
 ## Current Item MVP
 

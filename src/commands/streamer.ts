@@ -30,6 +30,13 @@ export default class StreamerCommand extends Command {
         )
         .addSubcommand(subcommand =>
             subcommand
+                .setName("agent_pair")
+                .setDescription("Generate remote OBS agent credentials for a registered streamer.")
+                .addStringOption(option => option.setName("nickname").setDescription("Registered streamer nickname").setAutocomplete(true).setRequired(true))
+                .addStringOption(option => option.setName("agent_id").setDescription("Optional stable agent id for the streamer PC").setRequired(false))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
                 .setName("agent_set")
                 .setDescription("Bind an OBS agent to a registered streamer.")
                 .addStringOption(option => option.setName("nickname").setDescription("Registered streamer nickname").setAutocomplete(true).setRequired(true))
@@ -115,6 +122,48 @@ export default class StreamerCommand extends Command {
                 content: response.success && response.data.removed
                     ? t(locale, "commands.streamer.remove_success", { nickname })
                     : t(locale, "commands.streamer.remove_missing"),
+                flags: ["Ephemeral"],
+            });
+            return;
+        }
+
+        if (subcommand === "agent_pair") {
+            const nickname = interaction.options.getString("nickname", true);
+            const response = await streamerService.provisionStreamerObsAgent({
+                discordGuildId: interaction.guildId,
+                nickname,
+                agentId: interaction.options.getString("agent_id"),
+                updatedByDiscordId: interaction.user.id,
+            });
+
+            if (!response.success) {
+                await interaction.reply({ content: response.error.message ?? "Failed to generate OBS agent credentials.", flags: ["Ephemeral"] });
+                return;
+            }
+
+            const envSnippet = [
+                "OBS_AGENT_RELAY_URL=ws://YOUR_SERVER_HOST:8787",
+                `OBS_AGENT_ID=${response.data.agentId}`,
+                `OBS_AGENT_TOKEN=${response.data.agentToken}`,
+                "",
+                "OBS_WEBSOCKET_URL=ws://127.0.0.1:4455",
+                "OBS_WEBSOCKET_PASSWORD=",
+            ].join("\n");
+
+            await interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle(`OBS pairing for ${nickname}`)
+                        .setDescription([
+                            "Use this on the streamer PC where OBS is running.",
+                            "The streamer machine opens an outgoing connection to your server relay, so the bot and OBS do not need to share one LAN.",
+                        ].join("\n\n"))
+                        .addFields(
+                            { name: "Relay model", value: "Server bot hosts the relay. Streamer PC runs the local OBS agent and connects outward to it." },
+                            { name: "Copy into .env.agent", value: `\`\`\`env\n${envSnippet}\n\`\`\`` },
+                            { name: "Next steps", value: "1. Put these values on the streamer PC.\n2. Start the agent with `npm run agent`.\n3. Check `/streamer agent_show` or `/streamer list`." },
+                        )
+                ],
                 flags: ["Ephemeral"],
             });
             return;

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
@@ -57,6 +58,12 @@ export interface StreamerObsAgentConfigView {
     agentId: string;
     tokenMask: string;
     online: boolean;
+}
+
+export interface StreamerObsAgentProvisioningView {
+    streamerId: number;
+    agentId: string;
+    agentToken: string;
 }
 
 interface StreamerAgentBindingRecord {
@@ -268,6 +275,39 @@ export class StreamerService {
                 data: {
                     streamerId: streamer.streamerId,
                     agentId: normalizedAgentId,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async provisionStreamerObsAgent(input: {
+        discordGuildId: string;
+        nickname: string;
+        updatedByDiscordId: string;
+        agentId?: string | null;
+    }): Promise<DBResponse<StreamerObsAgentProvisioningView>> {
+        try {
+            const streamer = await this.resolveGuildStreamer(input.discordGuildId, input.nickname);
+            const updater = await this.ensureMemberByDiscordId(input.updatedByDiscordId);
+            const normalizedAgentId = this.normalizeAgentId(input.agentId, streamer.nickname);
+            const agentToken = crypto.randomBytes(24).toString("hex");
+            const currentConfig = await this.getStreamerObsAgentByStreamerId(streamer.streamerId);
+
+            if (currentConfig?.agentId && currentConfig.agentId !== normalizedAgentId) {
+                await pool.query(`DELETE FROM bot_settings WHERE setting_key = ?`, [this.getAgentCredentialKey(currentConfig.agentId)]);
+            }
+
+            await this.upsertBotSetting(this.getStreamerAgentBindingKey(streamer.streamerId), JSON.stringify({ agentId: normalizedAgentId }), updater.data.id);
+            await this.upsertBotSetting(this.getAgentCredentialKey(normalizedAgentId), agentToken, updater.data.id);
+
+            return {
+                success: true,
+                data: {
+                    streamerId: streamer.streamerId,
+                    agentId: normalizedAgentId,
+                    agentToken,
                 },
             };
         } catch (error) {
@@ -673,6 +713,18 @@ export class StreamerService {
         }
 
         return parsedUrl.toString();
+    }
+
+    private normalizeAgentId(agentId: string | null | undefined, nickname: string) {
+        const normalizedValue = agentId?.trim();
+        const fallbackAgentId = `streamer-${nickname}-${crypto.randomBytes(4).toString("hex")}`;
+        const resolvedValue = normalizedValue?.length ? normalizedValue : fallbackAgentId;
+
+        if (!/^[a-zA-Z0-9._:-]{3,80}$/.test(resolvedValue)) {
+            throw new Error("Agent id must be 3-80 chars and use only letters, numbers, dot, underscore, colon or dash.");
+        }
+
+        return resolvedValue;
     }
 
     private async guildHasAnyStreamers(guildId: number) {
