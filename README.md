@@ -60,7 +60,6 @@ But now it’s a publicly available bot with a shared economy across servers
 
 ## 🏗️ Ecosystem
 
-<<<<<<< HEAD
 <table>
   <thead>
     <tr>
