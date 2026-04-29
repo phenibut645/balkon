@@ -135,6 +135,7 @@ Bot-side binding flow:
 3. Put the generated values into `balkon-obs-agent` on the streamer PC.
 4. Connect the app and check status with `/streamer agent_show` or `/streamer list`.
 5. Use `/serviceuse` and service items will route OBS actions through that streamer's local agent.
+6. OBS controls in `/menu` and `/botmenu` use the primary streamer's connected OBS Agent via relay (not direct OBS connection from the bot host).
 
 Manual fallback still exists:
 

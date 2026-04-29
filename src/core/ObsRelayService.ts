@@ -3,7 +3,7 @@ import { RowDataPacket } from "mysql2";
 import { WebSocket, WebSocketServer } from "ws";
 import { obsAgentRelayPort, obsAgentRequestTimeoutMs } from "../config.js";
 import pool from "../db.js";
-import { ObsRelayCommandMessage, ObsRelayCommandName, ObsRelayGetStatusResult, ObsRelayIncomingMessage, ObsRelayOutgoingMessage } from "../types/obs-agent.types.js";
+import { ObsRelayCommandMessage, ObsRelayCommandName, ObsRelayGetStatusResult, ObsRelayIncomingMessage, ObsRelayOutgoingMessage, ObsRelayPongMessage } from "../types/obs-agent.types.js";
 
 interface AgentCredentialRow extends RowDataPacket {
     setting_value: string | null;
@@ -133,6 +133,20 @@ export class ObsRelayService {
     private handleAgentMessage(socket: WebSocket, rawMessage: WebSocket.RawData) {
         try {
             const parsedMessage = this.parseIncomingMessage(rawMessage);
+            if (parsedMessage.type === "ping") {
+                if (typeof parsedMessage.ts !== "number" || !Number.isFinite(parsedMessage.ts)) {
+                    return;
+                }
+
+                const pong: ObsRelayPongMessage = {
+                    type: "pong",
+                    ts: parsedMessage.ts,
+                };
+
+                socket.send(JSON.stringify(pong));
+                return;
+            }
+
             if (parsedMessage.type === "result") {
                 const pending = this.pendingRequests.get(parsedMessage.requestId);
                 if (!pending) {
@@ -142,6 +156,23 @@ export class ObsRelayService {
                 clearTimeout(pending.timeout);
                 this.pendingRequests.delete(parsedMessage.requestId);
                 pending.resolve(parsedMessage.result);
+                return;
+            }
+
+            if (parsedMessage.type === "command_result") {
+                const pending = this.pendingRequests.get(parsedMessage.requestId);
+                if (!pending) {
+                    return;
+                }
+
+                clearTimeout(pending.timeout);
+                this.pendingRequests.delete(parsedMessage.requestId);
+                if (parsedMessage.ok) {
+                    pending.resolve(parsedMessage.data);
+                    return;
+                }
+
+                pending.reject(new Error(parsedMessage.error ?? "OBS agent command failed."));
                 return;
             }
 

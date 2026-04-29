@@ -19,7 +19,7 @@ import { DEVELOPER_DISCORD_ID } from "../config.js";
 import { canViewForeignInventory, getBotAdminDashboardStats, getBotContributorIds, getFounderBootstrapAudit, getFounderDashboardStats, isBotAdmin, isBotContributor, isBotOwner, isGuildFounder, updateBotContributor } from "../core/BotAdmin.js";
 import { dataBaseHandler, DataBaseHandler } from "../core/DataBaseHandler.js";
 import { localeService } from "../core/LocaleService.js";
-import { ObsMediaAction, obsService } from "../core/ObsService.js";
+import { ObsMediaAction } from "../core/ObsService.js";
 import { streamerService } from "../core/StreamerService.js";
 import { BotShopListingView, CraftRecipeView, InventoryItemView, ItemRarityView, ItemTemplateView, itemService, PublicMarketListingView } from "../core/ItemService.js";
 import { commandSessionHandler } from "../core/commands/CommandSessionHandler.js";
@@ -836,68 +836,59 @@ export default class MenuCommand extends Command {
     private reconnectObs: ButtonExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
         const state = this.readSession(interaction.user.id);
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            await this.replyToComponentInteraction(interaction, t(locale, "menu.messages.obs_no_guild"));
+            return;
+        }
+
         try {
-            const status = await obsService.reconnect();
+            const statusResponse = await streamerService.getPrimaryStreamerObsStatus(guildId);
+            if (!statusResponse.success) {
+                await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, statusResponse.error.message));
+                return;
+            }
+
+            const status = statusResponse.data;
             await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.reconnect_done", {
                 connected: t(locale, `menu.common.${status.connected ? "yes" : "no"}`),
                 scene: status.currentSceneName ?? t(locale, "menu.common.unknown"),
             })));
         } catch (error) {
-            await this.replyToComponentInteraction(interaction, error instanceof Error ? error.message : t(locale, "commands.obs.failed"));
+            await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, error instanceof Error ? error.message : undefined));
         }
     };
 
     private showObsConfig: ButtonExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
         const state = this.readSession(interaction.user.id);
-        const config = await obsService.getMaskedConnectionConfig();
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            await this.replyToComponentInteraction(interaction, t(locale, "menu.messages.obs_no_guild"));
+            return;
+        }
+
+        const primaryAgent = await streamerService.getPrimaryGuildStreamerAgent(guildId);
+        if (!primaryAgent.success) {
+            await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, primaryAgent.error.message));
+            return;
+        }
+
         const notice = t(locale, "menu.messages.obs_config_current", {
-            source: config.source,
-            url: config.url ?? t(locale, "menu.common.not_available"),
+            source: primaryAgent.data.streamerNickname,
+            url: primaryAgent.data.agentId,
         });
         await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, notice));
     };
 
     private openObsConfigModal: ButtonExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
-        const config = await obsService.getMaskedConnectionConfig();
-        const modal = new ModalBuilder()
-            .setCustomId(this.obsConfigModal.toString())
-            .setTitle(t(locale, "menu.modals.obs_config_title"))
-            .addComponents(
-                new ActionRowBuilder<TextInputBuilder>().addComponents(
-                    new TextInputBuilder()
-                        .setCustomId("url")
-                        .setLabel(t(locale, "menu.modals.obs_config_url_label"))
-                        .setPlaceholder(t(locale, "menu.modals.obs_config_url_placeholder"))
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true)
-                        .setValue(config.url ?? "")
-                ),
-                new ActionRowBuilder<TextInputBuilder>().addComponents(
-                    new TextInputBuilder()
-                        .setCustomId("password")
-                        .setLabel(t(locale, "menu.modals.obs_config_password_label"))
-                        .setPlaceholder(t(locale, "menu.modals.obs_config_password_placeholder"))
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(false)
-                )
-            );
-
-        await interaction.showModal(modal);
+        await this.replyToComponentInteraction(interaction, t(locale, "menu.messages.obs_config_managed_by_streamer"));
     };
 
     private clearObsConfig: ButtonExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
-        const state = this.readSession(interaction.user.id);
-        try {
-            await obsService.clearConnectionConfig(interaction.user.id);
-            state.selectedObsSceneName = undefined;
-            state.selectedObsSourceName = undefined;
-            await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.config_cleared")));
-        } catch (error) {
-            await this.replyToComponentInteraction(interaction, error instanceof Error ? error.message : t(locale, "commands.obs.failed"));
-        }
+        await this.replyToComponentInteraction(interaction, t(locale, "menu.messages.obs_config_managed_by_streamer"));
     };
 
     private switchObsScene: ButtonExecutionFunc = async (interaction) => {
@@ -908,11 +899,22 @@ export default class MenuCommand extends Command {
             return;
         }
 
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            await this.replyToComponentInteraction(interaction, t(locale, "menu.messages.obs_no_guild"));
+            return;
+        }
+
         try {
-            await obsService.switchScene(state.selectedObsSceneName);
+            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.switchScene", { sceneName: state.selectedObsSceneName });
+            if (!response.success) {
+                await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, response.error.message));
+                return;
+            }
+
             await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.switched", { scene: state.selectedObsSceneName! })));
         } catch (error) {
-            await this.replyToComponentInteraction(interaction, error instanceof Error ? error.message : t(locale, "commands.obs.failed"));
+            await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, error instanceof Error ? error.message : undefined));
         }
     };
 
@@ -976,19 +978,7 @@ export default class MenuCommand extends Command {
 
     private submitObsConfigModal: ModalsExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
-        const state = this.readSession(interaction.user.id);
-        try {
-            await obsService.setConnectionConfig({
-                url: interaction.fields.getTextInputValue("url"),
-                password: interaction.fields.getTextInputValue("password") || null,
-                updatedByDiscordId: interaction.user.id,
-            });
-            state.selectedObsSceneName = undefined;
-            state.selectedObsSourceName = undefined;
-            await this.respondAfterModal(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.config_saved")));
-        } catch (error) {
-            await interaction.reply({ content: error instanceof Error ? error.message : t(locale, "commands.obs.failed"), flags: ["Ephemeral"] });
-        }
+        await interaction.reply({ content: t(locale, "menu.messages.obs_config_managed_by_streamer"), flags: ["Ephemeral"] });
     };
 
     private submitObsTextModal: ModalsExecutionFunc = async (interaction) => {
@@ -999,11 +989,25 @@ export default class MenuCommand extends Command {
             return;
         }
 
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            await interaction.reply({ content: t(locale, "menu.messages.obs_no_guild"), flags: ["Ephemeral"] });
+            return;
+        }
+
         try {
-            await obsService.setTextInputText(state.selectedObsSourceName, interaction.fields.getTextInputValue("text"));
+            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.setTextInputText", {
+                inputName: state.selectedObsSourceName,
+                text: interaction.fields.getTextInputValue("text"),
+            });
+            if (!response.success) {
+                await interaction.reply({ content: this.formatObsRelayError(locale, response.error.message), flags: ["Ephemeral"] });
+                return;
+            }
+
             await this.respondAfterModal(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.text_updated", { source: state.selectedObsSourceName! })));
         } catch (error) {
-            await interaction.reply({ content: error instanceof Error ? error.message : t(locale, "commands.obs.failed"), flags: ["Ephemeral"] });
+            await interaction.reply({ content: this.formatObsRelayError(locale, error instanceof Error ? error.message : undefined), flags: ["Ephemeral"] });
         }
     };
 
@@ -1021,11 +1025,25 @@ export default class MenuCommand extends Command {
             return;
         }
 
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            await interaction.reply({ content: t(locale, "menu.messages.obs_no_guild"), flags: ["Ephemeral"] });
+            return;
+        }
+
         try {
-            await obsService.triggerMediaInputAction(state.selectedObsSourceName, mediaAction);
+            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.triggerMediaInputAction", {
+                inputName: state.selectedObsSourceName,
+                mediaAction,
+            });
+            if (!response.success) {
+                await interaction.reply({ content: this.formatObsRelayError(locale, response.error.message), flags: ["Ephemeral"] });
+                return;
+            }
+
             await this.respondAfterModal(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.media_sent", { action: mediaAction, source: state.selectedObsSourceName! })));
         } catch (error) {
-            await interaction.reply({ content: error instanceof Error ? error.message : t(locale, "commands.obs.failed"), flags: ["Ephemeral"] });
+            await interaction.reply({ content: this.formatObsRelayError(locale, error instanceof Error ? error.message : undefined), flags: ["Ephemeral"] });
         }
     };
 
@@ -1693,18 +1711,45 @@ export default class MenuCommand extends Command {
         }
 
         const state = this.readSession(userId);
-        const status = await obsService.getStatus();
-        const config = await obsService.getMaskedConnectionConfig();
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            return this.simplePanel(
+                t(locale, "menu.panels.obs_title"),
+                t(locale, "menu.messages.obs_no_guild"),
+                locale,
+                [this.buildBackCategoryRow(locale, this.adminButton)]
+            );
+        }
+
+        const primaryAgentResponse = await streamerService.getPrimaryGuildStreamerAgent(guildId);
+        if (!primaryAgentResponse.success) {
+            return this.simplePanel(
+                t(locale, "menu.panels.obs_title"),
+                this.formatObsRelayError(locale, primaryAgentResponse.error.message),
+                locale,
+                [this.buildBackCategoryRow(locale, this.adminButton)]
+            );
+        }
+
+        const statusResponse = await streamerService.getPrimaryStreamerObsStatus(guildId);
+        const status = statusResponse.success ? statusResponse.data : {
+            connected: false,
+            currentSceneName: null,
+            endpoint: null,
+            obsVersion: null,
+            websocketVersion: null,
+        };
 
         let scenes: string[] = [];
         let sources: Array<{ sourceName: string; enabled: boolean }> = [];
-        let scenesError: string | null = null;
-        let sourcesError: string | null = null;
+        const statusError = statusResponse.success ? null : this.formatObsRelayError(locale, statusResponse.error.message);
 
-        try {
-            scenes = (await obsService.listScenes()).map(scene => scene.sceneName);
-        } catch (error) {
-            scenesError = error instanceof Error ? error.message : t(locale, "commands.obs.failed");
+        const scenesResponse = await streamerService.listPrimaryStreamerScenes(guildId);
+        const scenesError = scenesResponse.success ? null : this.formatObsRelayError(locale, scenesResponse.error.message);
+        if (scenesResponse.success) {
+            scenes = scenesResponse.data
+                .map(scene => scene.sceneName)
+                .filter(sceneName => sceneName.length > 0);
         }
 
         const resolvedScene = state.selectedObsSceneName && scenes.includes(state.selectedObsSceneName)
@@ -1715,12 +1760,14 @@ export default class MenuCommand extends Command {
 
         state.selectedObsSceneName = resolvedScene;
 
+        let sourcesError: string | null = null;
         if (resolvedScene) {
-            try {
-                const sceneItems = await obsService.listSceneItems(resolvedScene);
+            const sceneItemsResponse = await streamerService.listPrimaryStreamerSceneItems(guildId, resolvedScene);
+            if (sceneItemsResponse.success) {
+                const sceneItems = sceneItemsResponse.data;
                 sources = sceneItems.map(item => ({ sourceName: item.sourceName, enabled: item.enabled }));
-            } catch (error) {
-                sourcesError = error instanceof Error ? error.message : t(locale, "commands.obs.failed");
+            } else {
+                sourcesError = this.formatObsRelayError(locale, sceneItemsResponse.error.message);
             }
         }
 
@@ -1737,13 +1784,16 @@ export default class MenuCommand extends Command {
                     .setDescription([
                         t(locale, "menu.panels.obs_intro"),
                         "",
+                        statusError ? `> ${statusError}` : null,
+                        `• Streamer: ${primaryAgentResponse.data.streamerNickname}`,
+                        `• Agent: ${primaryAgentResponse.data.agentId} (${t(locale, `menu.common.${primaryAgentResponse.data.online ? "online" : "offline"}`)})`,
                         `• ${t(locale, "menu.panels.obs_connected")}: ${t(locale, `menu.common.${status.connected ? "yes" : "no"}`)}`,
-                        `• ${t(locale, "menu.panels.obs_source")}: ${config.source}`,
+                        `• ${t(locale, "menu.panels.obs_source")}: relay-agent`,
                         `• ${t(locale, "menu.panels.obs_endpoint")}: ${status.endpoint ?? t(locale, "menu.common.not_available")}`,
                         `• ${t(locale, "menu.panels.obs_scene")}: ${status.currentSceneName ?? t(locale, "menu.common.not_available")}`,
                         `• ${t(locale, "menu.panels.obs_selected_scene")}: ${state.selectedObsSceneName ?? t(locale, "menu.common.not_available")}`,
                         `• ${t(locale, "menu.panels.obs_selected_source")}: ${state.selectedObsSourceName ?? t(locale, "menu.common.not_available")}`,
-                    ].join("\n")),
+                    ].filter(Boolean).join("\n")),
                 new EmbedBuilder()
                     .setColor(0xcba38a)
                     .setTitle(t(locale, "menu.panels.obs_workspace_title"))
@@ -2877,16 +2927,63 @@ export default class MenuCommand extends Command {
             return;
         }
 
+        const guildId = this.resolveObsGuildId(state);
+        if (!guildId) {
+            await this.replyToComponentInteraction(interaction, t(locale, "menu.messages.obs_no_guild"));
+            return;
+        }
+
         try {
-            await obsService.setSourceVisibility(state.selectedObsSceneName, state.selectedObsSourceName, visible);
+            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.setSourceVisibility", {
+                sceneName: state.selectedObsSceneName,
+                sourceName: state.selectedObsSourceName,
+                visible,
+            });
+            if (!response.success) {
+                await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, response.error.message));
+                return;
+            }
+
             await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "commands.obs.visibility", {
                 source: state.selectedObsSourceName!,
                 scene: state.selectedObsSceneName!,
                 state: t(locale, `menu.common.${visible ? "visible" : "hidden"}`),
             })));
         } catch (error) {
-            await this.replyToComponentInteraction(interaction, error instanceof Error ? error.message : t(locale, "commands.obs.failed"));
+            await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, error instanceof Error ? error.message : undefined));
         }
+    }
+
+    private resolveObsGuildId(state: MenuSessionState): string | null {
+        const guildId = state.guildId?.trim();
+        return guildId?.length ? guildId : null;
+    }
+
+    private formatObsRelayError(locale: LocalesCodes, rawMessage?: string): string {
+        const message = (rawMessage ?? "").trim();
+        const normalized = message.toLowerCase();
+
+        if (normalized.includes("guild id")) {
+            return t(locale, "menu.messages.obs_no_guild");
+        }
+
+        if (normalized.includes("no registered streamers")) {
+            return t(locale, "menu.messages.obs_no_streamer");
+        }
+
+        if (normalized.includes("has no obs agent configured")) {
+            return t(locale, "menu.messages.obs_no_agent");
+        }
+
+        if (normalized.includes("is offline")) {
+            return t(locale, "menu.messages.obs_agent_offline");
+        }
+
+        if (normalized.includes("did not respond in time")) {
+            return t(locale, "menu.messages.obs_relay_timeout");
+        }
+
+        return message || t(locale, "menu.messages.obs_relay_failed");
     }
 
     private normalizeObsMediaAction(input: string): ObsMediaAction | null {

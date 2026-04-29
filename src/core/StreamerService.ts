@@ -7,7 +7,7 @@ import { ObsMediaAction } from "./ObsService.js";
 import { GuildStreamersDB, GuildsDB, ItemServiceActionType, ItemServiceActionsDB, MembersDB, StreamersDB } from "../types/database.types.js";
 import { itemService } from "./ItemService.js";
 import { obsRelayService } from "./ObsRelayService.js";
-import { ObsRelayMediaActionPayload, ObsRelaySetSourceVisibilityPayload, ObsRelaySetTextInputPayload } from "../types/obs-agent.types.js";
+import { ObsRelayCommandName, ObsRelayGetStatusResult, ObsRelayMediaActionPayload, ObsRelaySceneItem, ObsRelaySetSourceVisibilityPayload, ObsRelaySetTextInputPayload } from "../types/obs-agent.types.js";
 
 interface GuildStreamerRow extends RowDataPacket {
     guild_streamer_id: number;
@@ -64,6 +64,14 @@ export interface StreamerObsAgentProvisioningView {
     streamerId: number;
     agentId: string;
     agentToken: string;
+}
+
+export interface PrimaryGuildStreamerAgentView {
+    discordGuildId: string;
+    streamerId: number;
+    streamerNickname: string;
+    agentId: string;
+    online: boolean;
 }
 
 interface StreamerAgentBindingRecord {
@@ -359,6 +367,72 @@ export class StreamerService {
         } catch (error) {
             return DataBaseHandler.errorHandling(error);
         }
+    }
+
+    async getPrimaryGuildStreamerAgent(discordGuildId: string): Promise<DBResponse<PrimaryGuildStreamerAgentView>> {
+        try {
+            const normalizedGuildId = discordGuildId.trim();
+            if (!normalizedGuildId) {
+                throw new Error("OBS relay requires a Discord guild id.");
+            }
+
+            const primaryStreamer = await this.resolveGuildStreamer(normalizedGuildId, null);
+            const streamerAgent = await this.getStreamerObsAgentByStreamerId(primaryStreamer.streamerId);
+            if (!streamerAgent) {
+                throw new Error(`Primary streamer '${primaryStreamer.nickname}' has no OBS agent configured.`);
+            }
+
+            const online = obsRelayService.isAgentConnected(streamerAgent.agentId);
+            if (!online) {
+                throw new Error(`OBS agent '${streamerAgent.agentId}' is offline.`);
+            }
+
+            return {
+                success: true,
+                data: {
+                    discordGuildId: normalizedGuildId,
+                    streamerId: primaryStreamer.streamerId,
+                    streamerNickname: primaryStreamer.nickname,
+                    agentId: streamerAgent.agentId,
+                    online,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async sendObsCommandToPrimaryStreamer<T>(
+        discordGuildId: string,
+        command: ObsRelayCommandName,
+        payload?: Record<string, unknown>,
+    ): Promise<DBResponse<T>> {
+        try {
+            const primaryAgent = await this.getPrimaryGuildStreamerAgent(discordGuildId);
+            if (DataBaseHandler.isFail(primaryAgent)) {
+                return primaryAgent;
+            }
+
+            const result = await obsRelayService.sendCommand<T>(primaryAgent.data.agentId, command, payload);
+            return {
+                success: true,
+                data: result,
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async listPrimaryStreamerScenes(discordGuildId: string): Promise<DBResponse<Array<{ sceneName: string }>>> {
+        return this.sendObsCommandToPrimaryStreamer<Array<{ sceneName: string }>>(discordGuildId, "obs.listScenes");
+    }
+
+    async listPrimaryStreamerSceneItems(discordGuildId: string, sceneName: string): Promise<DBResponse<ObsRelaySceneItem[]>> {
+        return this.sendObsCommandToPrimaryStreamer<ObsRelaySceneItem[]>(discordGuildId, "obs.listSceneItems", { sceneName });
+    }
+
+    async getPrimaryStreamerObsStatus(discordGuildId: string): Promise<DBResponse<ObsRelayGetStatusResult>> {
+        return this.sendObsCommandToPrimaryStreamer<ObsRelayGetStatusResult>(discordGuildId, "obs.getStatus");
     }
 
     async upsertItemServiceAction(input: {

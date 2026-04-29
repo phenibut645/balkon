@@ -20,6 +20,16 @@ export interface ObsRelayHelloAckMessage {
     agentId: string;
 }
 
+export interface ObsRelayPingMessage {
+    type: "ping";
+    ts: number;
+}
+
+export interface ObsRelayPongMessage {
+    type: "pong";
+    ts: number;
+}
+
 export interface ObsRelayCommandMessage {
     type: "command";
     requestId: string;
@@ -33,14 +43,22 @@ export interface ObsRelayResultMessage {
     result?: unknown;
 }
 
+export interface ObsRelayCommandResultMessage {
+    type: "command_result";
+    requestId: string;
+    ok: boolean;
+    data?: unknown;
+    error?: string;
+}
+
 export interface ObsRelayErrorMessage {
     type: "error";
     requestId?: string;
     error: string;
 }
 
-export type ObsRelayIncomingMessage = ObsRelayHelloMessage | ObsRelayResultMessage | ObsRelayErrorMessage;
-export type ObsRelayOutgoingMessage = ObsRelayHelloAckMessage | ObsRelayCommandMessage | ObsRelayErrorMessage;
+export type ObsRelayIncomingMessage = ObsRelayHelloMessage | ObsRelayResultMessage | ObsRelayCommandResultMessage | ObsRelayErrorMessage | ObsRelayPingMessage;
+export type ObsRelayOutgoingMessage = ObsRelayHelloAckMessage | ObsRelayCommandMessage | ObsRelayErrorMessage | ObsRelayPongMessage;
 
 export interface ObsRelayGetStatusResult {
     connected: boolean;
