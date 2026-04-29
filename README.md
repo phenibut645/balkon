@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏴‍☠️ Balkon
+# 🥀 Balkon
 
 ### Discord bot ecosystem for items, economy, crafting, streamer tools and OBS control
 
