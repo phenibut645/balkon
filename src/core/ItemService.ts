@@ -876,6 +876,179 @@ export class ItemService {
         }
     }
 
+    async updateCraftRecipe(recipeId: number, input: {
+        name: string;
+        description?: string | null;
+        resultItemTemplateId: number;
+        resultAmount: number;
+        ingredients: Array<{ itemTemplateId: number; amount: number }>;
+    }): Promise<DBResponse<{ recipeId: number }>> {
+        let connection: PoolConnection | null = null;
+
+        try {
+            const recipeName = this.normalizeRequiredText(input.name, "Recipe name");
+            const recipeDescription = this.normalizeOptionalText(input.description);
+            const resultAmount = this.normalizePositiveInteger(input.resultAmount, "Result amount");
+            const normalizedIngredients = this.normalizeCraftIngredients(input.ingredients);
+
+            connection = await pool.getConnection();
+            await connection.beginTransaction();
+
+            const [existingRecipeRows] = await connection.query<RowDataPacket[]>(
+                `SELECT id FROM craft_recipes WHERE id = ? LIMIT 1 FOR UPDATE`,
+                [recipeId]
+            );
+            if (!existingRecipeRows.length) {
+                await connection.rollback();
+                return {
+                    success: false,
+                    error: {
+                        reason: "record_not_found",
+                        relatedTo: "craft_recipes",
+                        message: "Craft recipe not found.",
+                    },
+                };
+            }
+
+            const [duplicateNameRows] = await connection.query<RowDataPacket[]>(
+                `SELECT id FROM craft_recipes WHERE name = ? AND id <> ? LIMIT 1 FOR UPDATE`,
+                [recipeName, recipeId]
+            );
+            if (duplicateNameRows.length) {
+                await connection.rollback();
+                return {
+                    success: false,
+                    error: {
+                        reason: "unknown",
+                        relatedTo: "craft_recipes",
+                        message: "Craft recipe with this name already exists.",
+                    },
+                };
+            }
+
+            const [resultItemRows] = await connection.query<RowDataPacket[]>(
+                `SELECT id FROM items WHERE id = ? LIMIT 1`,
+                [input.resultItemTemplateId]
+            );
+            if (!resultItemRows.length) {
+                await connection.rollback();
+                return {
+                    success: false,
+                    error: {
+                        reason: "record_not_found",
+                        relatedTo: "items",
+                        message: "Result item template not found.",
+                    },
+                };
+            }
+
+            const ingredientIds = Array.from(new Set(normalizedIngredients.map(ingredient => ingredient.itemTemplateId)));
+            if (ingredientIds.length) {
+                const [ingredientRows] = await connection.query<RowDataPacket[]>(
+                    `SELECT id FROM items WHERE id IN (${ingredientIds.map(() => "?").join(",")})`,
+                    ingredientIds
+                );
+                if (ingredientRows.length !== ingredientIds.length) {
+                    await connection.rollback();
+                    return {
+                        success: false,
+                        error: {
+                            reason: "record_not_found",
+                            relatedTo: "items",
+                            message: "One or more ingredient item templates were not found.",
+                        },
+                    };
+                }
+            }
+
+            await connection.query(
+                `UPDATE craft_recipes
+                 SET name = ?, description = ?, result_item_id = ?, result_amount = ?
+                 WHERE id = ?`,
+                [recipeName, recipeDescription, input.resultItemTemplateId, resultAmount, recipeId]
+            );
+
+            await connection.query(
+                `DELETE FROM craft_recipe_ingredients WHERE craft_recipe_id = ?`,
+                [recipeId]
+            );
+
+            if (normalizedIngredients.length) {
+                const ingredientValues = normalizedIngredients.map(ingredient => [
+                    recipeId,
+                    ingredient.itemTemplateId,
+                    ingredient.amount,
+                ]);
+
+                await connection.query<ResultSetHeader>(
+                    `INSERT INTO craft_recipe_ingredients (craft_recipe_id, item_id, amount) VALUES ?`,
+                    [ingredientValues]
+                );
+            }
+
+            await connection.commit();
+            return {
+                success: true,
+                data: { recipeId },
+            };
+        } catch (error) {
+            if (connection) {
+                await connection.rollback();
+            }
+            return DataBaseHandler.errorHandling(error);
+        } finally {
+            connection?.release();
+        }
+    }
+
+    async deleteCraftRecipe(recipeId: number): Promise<DBResponse<{ recipeId: number }>> {
+        let connection: PoolConnection | null = null;
+
+        try {
+            connection = await pool.getConnection();
+            await connection.beginTransaction();
+
+            const [recipeRows] = await connection.query<RowDataPacket[]>(
+                `SELECT id FROM craft_recipes WHERE id = ? LIMIT 1 FOR UPDATE`,
+                [recipeId]
+            );
+            if (!recipeRows.length) {
+                await connection.rollback();
+                return {
+                    success: false,
+                    error: {
+                        reason: "record_not_found",
+                        relatedTo: "craft_recipes",
+                        message: "Craft recipe not found.",
+                    },
+                };
+            }
+
+            await connection.query(
+                `DELETE FROM craft_recipe_ingredients WHERE craft_recipe_id = ?`,
+                [recipeId]
+            );
+
+            await connection.query(
+                `DELETE FROM craft_recipes WHERE id = ?`,
+                [recipeId]
+            );
+
+            await connection.commit();
+            return {
+                success: true,
+                data: { recipeId },
+            };
+        } catch (error) {
+            if (connection) {
+                await connection.rollback();
+            }
+            return DataBaseHandler.errorHandling(error);
+        } finally {
+            connection?.release();
+        }
+    }
+
     async listCraftRecipes(): Promise<DBResponse<CraftRecipeView[]>> {
         try {
             const [recipeRows] = await pool.query<CraftRecipeRow[]>(
@@ -1229,6 +1402,33 @@ export class ItemService {
                 data: {
                     listingId: insertResponse.data.insertId,
                 },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async deleteBotShopListing(listingId: number): Promise<DBResponse<{ listingId: number }>> {
+        try {
+            const [result] = await pool.query<ResultSetHeader>(
+                `DELETE FROM item_general_store WHERE id = ?`,
+                [listingId]
+            );
+
+            if (!result.affectedRows) {
+                return {
+                    success: false,
+                    error: {
+                        reason: "record_not_found",
+                        relatedTo: "item_general_store",
+                        message: "Bot shop listing not found.",
+                    },
+                };
+            }
+
+            return {
+                success: true,
+                data: { listingId },
             };
         } catch (error) {
             return DataBaseHandler.errorHandling(error);
