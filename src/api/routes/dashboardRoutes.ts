@@ -11,6 +11,10 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     me: {
       discordId: request.authUser!.discordId,
       roles: request.authUser!.roles,
+      username: request.authUser!.username ?? null,
+      globalName: request.authUser!.globalName ?? null,
+      avatar: request.authUser!.avatar ?? null,
+      avatarUrl: request.authUser!.avatarUrl ?? null,
     },
   }));
 

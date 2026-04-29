@@ -47,6 +47,15 @@ interface ApiSessionRow extends RowDataPacket {
   revoked_at: Date | null;
 }
 
+function buildDiscordAvatarUrl(discordId: string, avatar: string | null): string | null {
+  if (!avatar) {
+    return null;
+  }
+
+  const ext = avatar.startsWith("a_") ? "gif" : "png";
+  return `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.${ext}?size=128`;
+}
+
 export interface ApiSessionRecord {
   id: number;
   sessionTokenHash: string;
@@ -168,7 +177,7 @@ export class ApiSessionService {
   async resolveAuthUserByRawSessionToken(rawSessionToken: string): Promise<ApiAuthUser | null> {
     const tokenHash = hashSessionToken(rawSessionToken);
     const [rows] = await pool.query<ApiSessionRow[]>(
-      `SELECT discord_id
+      `SELECT discord_id, username, global_name, avatar
        FROM api_sessions
        WHERE session_token_hash = ?
          AND revoked_at IS NULL
@@ -182,6 +191,9 @@ export class ApiSessionService {
     }
 
     const discordId = String(rows[0].discord_id);
+    const username = rows[0].username;
+    const globalName = rows[0].global_name;
+    const avatar = rows[0].avatar;
     const roles: ApiAuthUser["roles"] = [];
     if (isBotAdmin(discordId)) {
       roles.push("bot_admin");
@@ -190,6 +202,10 @@ export class ApiSessionService {
     return {
       discordId,
       roles,
+      username,
+      globalName,
+      avatar,
+      avatarUrl: buildDiscordAvatarUrl(discordId, avatar),
     };
   }
 
