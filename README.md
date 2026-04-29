@@ -14,10 +14,11 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-ish-3178C6?logo=typescript&logoColor=white)
 ![Discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-database-4479A1?logo=mysql&logoColor=white)
-![OBS](https://img.shields.io/badge/OBS-Agent_relay-302E31?logo=obsstudio&logoColor=white)
+![OBS Agent](https://img.shields.io/badge/OBS-Agent_relay-302E31?logo=obsstudio&logoColor=white)
+![VNMCR](https://img.shields.io/badge/VNMCR-goth_punk_rock-111111?logo=applemusic&logoColor=white&labelColor=7A0019)
 
 > **zxc lobby management tool**: Discord economy + inventory + crafting + marketplace + OBS Agent relay.  
-> Pirate ship included. MMR not guaranteed. 🦜
+> Pirate ship included. MMR not guaranteed. VNMCR-coded. 🦜
 
 </div>
 
