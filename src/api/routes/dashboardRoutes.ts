@@ -629,4 +629,62 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       data: response.data,
     };
   });
+
+  // ── Economy ─────────────────────────────────────────────────────────────────
+
+  app.get("/economy/me", { preHandler: requireAuth }, async request => {
+    try {
+      const member = await ItemService.getInstance().ensureMemberByDiscordId(request.authUser!.discordId);
+      return {
+        ok: true,
+        balance: {
+          odm: Number(member.data.balance),
+          ldm: Number(member.data.ldm_balance),
+        },
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "ECONOMY_LOAD_FAILED",
+        "Failed to load balance.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  // ── Bot Shop purchase ────────────────────────────────────────────────────────
+
+  app.post("/botshop/:listingId/buy", { preHandler: requireAuth }, async request => {
+    const listingId = parsePositiveInteger((request.params as { listingId?: string }).listingId);
+    if (!listingId) {
+      return {
+        ok: false,
+        error: "INVALID_LISTING_ID",
+        message: "listingId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const rawAmount = body.amount ?? 1;
+    const amount = parsePositiveInteger(rawAmount);
+    if (!amount) {
+      return {
+        ok: false,
+        error: "INVALID_AMOUNT",
+        message: "Amount must be a positive integer.",
+      };
+    }
+
+    const response = await ItemService.getInstance().buyFromBotShop(request.authUser!.discordId, listingId, amount);
+    if (!response.success) {
+      return serviceErrorResponse("BOTSHOP_BUY_FAILED", "Purchase failed.", response.error);
+    }
+
+    return {
+      ok: true,
+      data: {
+        inserted: response.data.inserted,
+        listingId,
+      },
+    };
+  });
 }
