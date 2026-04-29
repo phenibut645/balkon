@@ -86,7 +86,7 @@ But now it’s a publicly available bot with a shared economy across servers
     </tr>
   </tbody>
 </table>
-=======
+
 ## REST API Foundation
 
 The repository now has two runtime applications:
@@ -94,12 +94,14 @@ The repository now has two runtime applications:
 - `balkon-bot`: existing Discord bot process (Discord gateway + `discord.js` actions).
 - `balkon-api`: new REST API process for the future web dashboard.
 
+Current rollout status: **internal/staging only**.
+
 Flow:
 
 1. Website calls `balkon-api` only.
 2. API uses shared services and database for standard data operations.
 3. For Discord-specific actions, API writes a command into `bot_commands` queue.
-4. Bot process will consume queue commands and execute Discord API calls.
+4. Bot process (`BotCommandWorker`) consumes commands and executes Discord API calls.
 
 This does not create a custom Discord API and does not expose bot tokens to frontend clients.
 
@@ -125,21 +127,30 @@ Implemented first endpoints:
 - `GET /api/botshop`
 - `GET /api/craft/recipes`
 - `GET /api/admin/stats`
-- `POST /api/guilds/:guildId/members/:memberId/kick` (enqueue only, does not directly call Discord)
+- `POST /api/guilds/:guildId/members/:memberId/kick` (enqueue only; execution happens in bot worker)
 
-### Temporary development auth
+### API auth safety boundary
 
-Discord OAuth routes are scaffolded but not implemented yet.
+Discord OAuth routes are scaffolded but not implemented yet, so production website auth is not ready.
 
-For local development, pass headers:
+Development header auth is intentionally gated and disabled by default:
+
+- Works only when `NODE_ENV !== "prod"`.
+- Works only when `API_DEV_AUTH_ENABLED=true`.
+- If `API_DEV_AUTH_ENABLED` is missing, header auth stays disabled.
+- In `NODE_ENV=prod`, `x-dev-discord-id` and `x-dev-roles` are ignored.
+- Protected routes in production currently return `401` until real OAuth/session auth is implemented.
+
+Real public website usage requires Discord OAuth and server-side sessions.
+
+### Development-only headers (disabled by default)
+
+For local development with explicit opt-in (`API_DEV_AUTH_ENABLED=true`):
 
 - `x-dev-discord-id: <discord_user_id>`
 - `x-dev-roles: bot_admin,bot_contributor,guild_founder`
 
-These are temporary placeholders and must be replaced by real OAuth/session middleware before production web rollout.
-
-## Database Workflow
->>>>>>> 1cf33a1 (API have created)
+Never use these headers in production.
 
 ### Runtime flow
 

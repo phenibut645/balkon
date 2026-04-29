@@ -13,6 +13,7 @@ import { guildDeleteController } from "./events/guildDelete.js";
 import { messageCreateController } from "./events/messageCreate.js";
 import { obsRelayService } from "./core/ObsRelayService.js";
 import { BalkonPlusSubscriptionService } from "./core/BalkonPlusSubscriptionService.js";
+import { BotCommandWorker } from "./core/BotCommandWorker.js";
 
 const client = new Client({
   intents: [
@@ -42,10 +43,12 @@ const client = new Client({
 });
 
 const balkonPlusSubscriptionService = new BalkonPlusSubscriptionService(client);
+const botCommandWorker = new BotCommandWorker(client);
 
 client.once("clientReady", async readyClient => {
   await clientReadyController(readyClient);
   await balkonPlusSubscriptionService.start();
+  botCommandWorker.start();
 });
 
 client.on("interactionCreate", interactionCreateController);
