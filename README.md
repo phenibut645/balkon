@@ -60,6 +60,7 @@ But now it’s a publicly available bot with a shared economy across servers
 
 ## 🏗️ Ecosystem
 
+<<<<<<< HEAD
 <table>
   <thead>
     <tr>
@@ -86,6 +87,60 @@ But now it’s a publicly available bot with a shared economy across servers
     </tr>
   </tbody>
 </table>
+=======
+## REST API Foundation
+
+The repository now has two runtime applications:
+
+- `balkon-bot`: existing Discord bot process (Discord gateway + `discord.js` actions).
+- `balkon-api`: new REST API process for the future web dashboard.
+
+Flow:
+
+1. Website calls `balkon-api` only.
+2. API uses shared services and database for standard data operations.
+3. For Discord-specific actions, API writes a command into `bot_commands` queue.
+4. Bot process will consume queue commands and execute Discord API calls.
+
+This does not create a custom Discord API and does not expose bot tokens to frontend clients.
+
+### API local run
+
+1. Install dependencies:
+   `npm install`
+2. Run API in dev mode:
+   `npm run dev:api`
+3. Build and run API from `dist`:
+   `npm run build`
+   `npm run start:api`
+
+Default API base path: `/api`
+
+Implemented first endpoints:
+
+- `GET /api/health`
+- `GET /api/version`
+- `GET /api/me`
+- `GET /api/inventory`
+- `GET /api/market`
+- `GET /api/botshop`
+- `GET /api/craft/recipes`
+- `GET /api/admin/stats`
+- `POST /api/guilds/:guildId/members/:memberId/kick` (enqueue only, does not directly call Discord)
+
+### Temporary development auth
+
+Discord OAuth routes are scaffolded but not implemented yet.
+
+For local development, pass headers:
+
+- `x-dev-discord-id: <discord_user_id>`
+- `x-dev-roles: bot_admin,bot_contributor,guild_founder`
+
+These are temporary placeholders and must be replaced by real OAuth/session middleware before production web rollout.
+
+## Database Workflow
+>>>>>>> 1cf33a1 (API have created)
 
 ### Runtime flow
 

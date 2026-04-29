@@ -1,6 +1,6 @@
 import { RowDataPacket } from "mysql2"
 
-export type DataBaseTables = "guilds" | "logs_channels" | "guild_members" | "guild_member_statuses" | "general_settings" |"log_types" | "guild_roles" | "members" | "member_roles" | "twitch_notification_channels" | "member_command_permissions" | "commands" | "member_items" | "item_public_market" | "item_general_store" | "items" | "item_types" | "role_command_permissions" | "streamers" | "muted_users" | "banned_members" | "guild_item_roles" | "item_roles" | "item_treasures" | "mute_roles" | "item_rarities" | "treasure_contents" | "guild_channels" | "channel_tags_statuses" | "channel_tags" | "guild_role_statuses" | "role_statuses" | "command_access_levels" | "craft_recipes" | "craft_recipe_ingredients" | "bot_settings" | "guild_streamers" | "item_service_actions";
+export type DataBaseTables = "guilds" | "logs_channels" | "guild_members" | "guild_member_statuses" | "general_settings" |"log_types" | "guild_roles" | "members" | "member_roles" | "twitch_notification_channels" | "member_command_permissions" | "commands" | "member_items" | "item_public_market" | "item_general_store" | "items" | "item_types" | "role_command_permissions" | "streamers" | "muted_users" | "banned_members" | "guild_item_roles" | "item_roles" | "item_treasures" | "mute_roles" | "item_rarities" | "treasure_contents" | "guild_channels" | "channel_tags_statuses" | "channel_tags" | "guild_role_statuses" | "role_statuses" | "command_access_levels" | "craft_recipes" | "craft_recipe_ingredients" | "bot_settings" | "guild_streamers" | "item_service_actions" | "bot_commands";
 
 export interface DefaultDBTable {
     id: number;
@@ -225,6 +225,22 @@ export interface ItemServiceActionsDB extends DefaultDBTable {
     consume_on_use?: boolean,
     updated_by_member_id?: number | null,
     updated_at?: number | Date,
+}
+
+export type BotCommandType = "KICK_MEMBER" | "BAN_MEMBER" | "UNBAN_MEMBER" | "ADD_ROLE" | "REMOVE_ROLE" | "SEND_CHANNEL_MESSAGE"
+export type BotCommandStatus = "pending" | "processing" | "completed" | "failed"
+
+export interface BotCommandsDB extends DefaultDBTable {
+    type: BotCommandType,
+    guild_id?: string | null,
+    requested_by_discord_id: string,
+    payload_json: string,
+    status: BotCommandStatus,
+    result_json?: string | null,
+    error_message?: string | null,
+    created_at?: number | Date,
+    started_at?: number | Date | null,
+    completed_at?: number | Date | null,
 }
 
 export type ChannelTagsStatusesNames = "public" | "private"
