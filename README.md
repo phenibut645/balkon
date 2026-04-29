@@ -53,7 +53,8 @@ It started as a Discord bot diploma project, then evolved into a small ecosystem
 - 🎥 OBS Studio control through a standalone OBS Agent.
 - 🧙 Streamer-oriented automation.
 
-The bot is created for the Discord server: [join here](https://discord.gg/eMrbGMzmyt).
+Was originally created for a Discord server: [join here](https://discord.gg/eMrbGMzmyt).
+But now it’s a publicly available bot with a shared economy across servers
 
 ---
 
