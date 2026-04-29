@@ -10,10 +10,10 @@ dotenv.config({ path: envFilePath, override: true });
 
 const host = process.env.DB_HOST ?? process.env.HOST;
 const user = process.env.DB_USER ?? process.env.USER;
-const password = process.env.DB_PASSWORD ?? process.env.PASSWORD;
+const password = process.env.DB_PASSWORD ?? process.env.PASSWORD ?? "";
 const database = process.env.DB_NAME ?? process.env.DATABASE;
 
-if (!host || !user || !password || !database) {
+if (!host || !user || !database) {
   console.error("Missing database connection variables. Expected DB_HOST/DB_USER/DB_PASSWORD/DB_NAME or HOST/USER/PASSWORD/DATABASE.");
   process.exit(1);
 }

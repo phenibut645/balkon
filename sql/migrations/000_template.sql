@@ -1,0 +1,10 @@
+-- 000_template.sql
+-- Copy this file when creating a new migration.
+-- Rename it to the next number, for example:
+-- 003_create_streamer_obs_agents.sql
+--
+-- Rules:
+-- - Do not edit old applied migrations.
+-- - Keep migrations idempotent when practical.
+-- - Avoid destructive changes unless absolutely necessary.
+-- - Test on dev before prod.

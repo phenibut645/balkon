@@ -22,9 +22,11 @@ Written in Node.js using mysql2 for the database and discord.js/rest for communi
    `npm run build`
 5. Initialize the database schema if the database is empty:
    `npm run db:init:dev`
-6. Run the bot in development mode:
+6. Apply incremental schema migrations:
+   `npm run db:migrate:dev`
+7. Run the bot in development mode:
    `npm run dev`
-7. Register slash commands when needed:
+8. Register slash commands when needed:
    `npm run dev-deploy`
 
 ## Production Start
@@ -35,9 +37,11 @@ Direct production start:
    `npm run build`
 2. Initialize the production database schema if the database is empty:
    `npm run db:init:prod`
-3. Register production slash commands if needed:
+3. Apply incremental schema migrations:
+   `npm run db:migrate:prod`
+4. Register production slash commands if needed:
    `npm run prod-deploy`
-4. Start the compiled bot in production mode:
+5. Start the compiled bot in production mode:
    `npm run start`
 
 One-liner for full production start:
@@ -58,15 +62,17 @@ Typical flow:
    `npm run build`
 2. Initialize the production database schema if the database is empty:
    `npm run db:init:prod`
-3. Register production slash commands if needed:
+3. Apply incremental schema migrations:
+   `npm run db:migrate:prod`
+4. Register production slash commands if needed:
    `npm run prod-deploy`
-4. Start through PM2:
+5. Start through PM2:
    `npm run pm2:start`
-5. Check logs:
+6. Check logs:
    `npm run pm2:logs`
-6. Restart after updates:
+7. Restart after updates:
    `npm run pm2:restart`
-7. Stop the process:
+8. Stop the process:
    `npm run pm2:stop`
 
 Equivalent raw PM2 commands:
@@ -76,6 +82,35 @@ Equivalent raw PM2 commands:
 - `pm2 logs balkon-bot`
 - `pm2 stop balkon-bot`
 
+## Database Workflow
+
+Use the two database commands for different jobs:
+
+- `db:init` creates the base tables from `sql/tables.sql` for a fresh database.
+- `db:migrate` applies incremental schema updates from `sql/migrations` to an existing database.
+
+For production deploys, run:
+
+1. `npm run db:migrate:prod`
+2. `npm run build`
+3. `pm2 restart all --update-env`
+
+### Database change workflow
+
+1. Change `sql/tables.sql` if the baseline schema changes.
+2. Add a new `sql/migrations/00X_description.sql` file.
+3. Test with `npm run db:migrate:dev`.
+4. Commit SQL and code changes together.
+5. On production, run `npm run db:migrate:prod` before restarting the bot.
+
+Rules for future schema work:
+
+- Do not change production database structure through `sql/tables.sql` only.
+- Every schema change must be added as a new numbered migration under `sql/migrations`.
+- `sql/tables.sql` is the baseline for fresh databases.
+- Migrations are for incremental updates to existing databases.
+- When adding a new table or column, update both the baseline schema and a new migration file.
+
 ## Environment variables
 
 Current runtime requires these values:
@@ -84,6 +119,7 @@ Current runtime requires these values:
 - `CLIENT_ID`
 - `GUILD_ID`
 - `DB_HOST` (preferred) or `HOST`
+- `DB_PORT` (optional, defaults to `3306`)
 - `DB_USER` (preferred) or `USER`
 - `DB_PASSWORD` (preferred) or `PASSWORD`
 - `DB_NAME` (preferred) or `DATABASE`

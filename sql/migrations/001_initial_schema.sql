@@ -1,0 +1,3 @@
+-- Initial schema is currently maintained in sql/tables.sql.
+-- This migration marks the starting point for future database changes.
+-- Do not place destructive SQL here.

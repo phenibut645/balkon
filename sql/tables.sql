@@ -140,6 +140,12 @@ CREATE TABLE items(
     FOREIGN KEY (created_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 );
 
+CREATE TABLE schema_migrations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    migration_name VARCHAR(255) NOT NULL UNIQUE,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 
 CREATE TABLE member_items (
     id INT AUTO_INCREMENT PRIMARY KEY,

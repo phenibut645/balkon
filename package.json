@@ -17,6 +17,8 @@
     "db:init": "node scripts/init_schema.mjs",
     "db:init:dev": "cross-env NODE_ENV=dev node scripts/init_schema.mjs",
     "db:init:prod": "cross-env NODE_ENV=prod node scripts/init_schema.mjs",
+    "db:migrate:dev": "cross-env NODE_ENV=dev node scripts/run_migrations.mjs",
+    "db:migrate:prod": "cross-env NODE_ENV=prod node scripts/run_migrations.mjs",
     "seed-demo": "cross-env NODE_ENV=dev node scripts/seed_demo_content.mjs",
     "build": "tsc && node scripts/copy_runtime_assets.mjs"
   },
