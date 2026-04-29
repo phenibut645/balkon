@@ -17,6 +17,8 @@ pids
 
 .env*
 website/
+# Nested website workspace. Separate Git repository.
+balkon-website/
 dist/
 balkon-obs-agent/
 

@@ -95,6 +95,13 @@ The repository now has two runtime applications:
 - `balkon-bot`: existing Discord bot process (Discord gateway + `discord.js` actions).
 - `balkon-api`: new REST API process for the future web dashboard.
 
+Also planned for dashboard frontend:
+
+- `balkon-website`: separate Next.js repository (`phenibut645/balkon-website`).
+- For local convenience, it can live as nested folder `balkon-website/` in this workspace.
+- Root `balkon` `.gitignore` excludes `balkon-website/` so website files are not tracked here.
+- Website uses existing Fastify API for OAuth/session/backend data and does not store Discord OAuth client secret.
+
 Current rollout status: **internal/staging only**.
 
 Flow:
