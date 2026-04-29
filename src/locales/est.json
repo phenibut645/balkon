@@ -244,6 +244,7 @@
             "obs_connected": "Ühendatud: {value}",
             "obs_source": "Konfiguratsiooni allikas: {value}",
             "obs_endpoint": "Endpoint: {value}",
+            "obs_streamer": "Striimer",
             "obs_scene": "Praegune stseen: {value}",
             "obs_selected_scene": "Valitud stseen: {value}",
             "obs_selected_source": "Valitud source: {value}",
@@ -270,6 +271,7 @@
             "craft": "Vali retsept",
             "obs_scene": "Vali OBS stseen",
             "obs_source": "Vali OBS source",
+            "obs_streamer": "Vali striimer",
             "locale": "Vali keel"
         },
         "locale_names": {
@@ -339,7 +341,9 @@
             "obs_no_guild": "OBS relay juhtimine on saadaval ainult Discordi serveris (guild).",
             "obs_no_streamer": "Selle guildi jaoks pole veel ühtegi striimerit registreeritud. Registreeri striimer esmalt.",
             "obs_no_agent": "Primary striimeril pole OBS Agenti konfigureeritud. Seo agent esmalt.",
+            "obs_no_agent_named": "Striimeril '{nickname}' pole OBS Agenti konfigureeritud. Kasuta /streamer agent_pair nickname:{nickname}.",
             "obs_agent_offline": "Primary striimeri OBS Agent on offline. Palu striimeril agenti rakendus ühendada.",
+            "obs_agent_offline_named": "Striimeri '{nickname}' OBS Agent on offline. Käivita Balkon OBS Agent striimeri arvutil.",
             "obs_relay_timeout": "OBS relay käsk aegus. Agent on ühendatud, kuid ei vastanud õigel ajal.",
             "obs_relay_failed": "OBS relay käsk ebaõnnestus.",
             "no_tradeable_items": "Kaubeldavaid esemeid pole",

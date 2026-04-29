@@ -20,7 +20,8 @@ import { canViewForeignInventory, getBotAdminDashboardStats, getBotContributorId
 import { dataBaseHandler, DataBaseHandler } from "../core/DataBaseHandler.js";
 import { localeService } from "../core/LocaleService.js";
 import { ObsMediaAction } from "../core/ObsService.js";
-import { streamerService } from "../core/StreamerService.js";
+import { GuildStreamerView, streamerService } from "../core/StreamerService.js";
+import { ObsRelayGetStatusResult, ObsRelaySceneItem } from "../types/obs-agent.types.js";
 import { BotShopListingView, CraftRecipeView, InventoryItemView, ItemRarityView, ItemTemplateView, itemService, PublicMarketListingView } from "../core/ItemService.js";
 import { commandSessionHandler } from "../core/commands/CommandSessionHandler.js";
 import { Command } from "../core/commands/Command.js";
@@ -46,8 +47,16 @@ interface MenuSessionState {
     guildId?: string;
     inventoryTargetUserId: string;
     selectedContributorUserId?: string;
+    selectedObsStreamerNickname?: string;
     selectedObsSceneName?: string;
     selectedObsSourceName?: string;
+    obsStatusCachedAt?: number;
+    cachedObsStatus?: { connected: boolean; currentSceneName: string | null; endpoint: string | null; obsVersion: string | null; websocketVersion: string | null };
+    obsScenesCachedAt?: number;
+    cachedObsScenes?: string[];
+    obsSceneItemsCachedAt?: number;
+    cachedObsSceneItemsForScene?: string;
+    cachedObsSceneItems?: Array<{ sourceName: string; enabled: boolean }>;
     selectedAdminItemTemplateId?: number;
     selectedAdminRarityId?: number;
     selectedInventoryItemId?: number;
@@ -94,6 +103,7 @@ export default class MenuCommand extends Command {
     private readonly obsConfigShowButton = new CommandDTO(this.commandName, "obs_config_show");
     private readonly obsConfigSetButton = new CommandDTO(this.commandName, "obs_config_set");
     private readonly obsConfigClearButton = new CommandDTO(this.commandName, "obs_config_clear");
+    private readonly obsStreamerSelect = new CommandDTO(this.commandName, "obs_streamer_select");
     private readonly obsSwitchSceneButton = new CommandDTO(this.commandName, "obs_switch_scene");
     private readonly obsShowSourceButton = new CommandDTO(this.commandName, "obs_show_source");
     private readonly obsHideSourceButton = new CommandDTO(this.commandName, "obs_hide_source");
@@ -195,6 +205,7 @@ export default class MenuCommand extends Command {
         this.buttons.set(this.adminEditRarityButton.toString(), this.openEditRarityModal);
         this.buttons.set(this.adminDeleteRarityButton.toString(), this.deleteSelectedRarity);
         this.stringSelectMenu.set(this.localeSelect.toString(), this.selectLocale);
+        this.stringSelectMenu.set(this.obsStreamerSelect.toString(), this.selectObsStreamer);
         this.stringSelectMenu.set(this.obsSceneSelect.toString(), this.selectObsScene);
         this.stringSelectMenu.set(this.obsSourceSelect.toString(), this.selectObsSource);
         this.stringSelectMenu.set(this.inventorySelect.toString(), this.selectInventoryItem);
@@ -456,10 +467,36 @@ export default class MenuCommand extends Command {
         await this.updateRendered(interaction.user.id, interaction, state);
     };
 
+    private selectObsStreamer: StringSelectMenuExecutionFunc = async (interaction) => {
+        const state = this.readSession(interaction.user.id);
+        const newNickname = interaction.values[0];
+        if (state.selectedObsStreamerNickname !== newNickname) {
+            state.selectedObsStreamerNickname = newNickname;
+            state.selectedObsSceneName = undefined;
+            state.selectedObsSourceName = undefined;
+            state.obsStatusCachedAt = undefined;
+            state.cachedObsStatus = undefined;
+            state.obsScenesCachedAt = undefined;
+            state.cachedObsScenes = undefined;
+            state.obsSceneItemsCachedAt = undefined;
+            state.cachedObsSceneItems = undefined;
+            state.cachedObsSceneItemsForScene = undefined;
+        }
+        state.screen = "obs";
+        this.persistSession(interaction.user.id, state);
+        await this.updateRendered(interaction.user.id, interaction, state);
+    };
+
     private selectObsScene: StringSelectMenuExecutionFunc = async (interaction) => {
         const state = this.readSession(interaction.user.id);
-        state.selectedObsSceneName = interaction.values[0];
-        state.selectedObsSourceName = undefined;
+        const newScene = interaction.values[0];
+        if (state.selectedObsSceneName !== newScene) {
+            state.selectedObsSceneName = newScene;
+            state.selectedObsSourceName = undefined;
+            state.obsSceneItemsCachedAt = undefined;
+            state.cachedObsSceneItems = undefined;
+            state.cachedObsSceneItemsForScene = undefined;
+        }
         state.screen = "obs";
         this.persistSession(interaction.user.id, state);
         await this.updateRendered(interaction.user.id, interaction, state);
@@ -824,12 +861,21 @@ export default class MenuCommand extends Command {
     private refreshObsStatus: ButtonExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
         const state = this.readSession(interaction.user.id);
+        state.obsStatusCachedAt = undefined;
+        state.cachedObsStatus = undefined;
+        this.persistSession(interaction.user.id, state);
         await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "menu.messages.obs_status_refreshed")));
     };
 
     private refreshObsScenes: ButtonExecutionFunc = async (interaction) => {
         const locale = await this.getLocale(interaction.user.id);
         const state = this.readSession(interaction.user.id);
+        state.obsScenesCachedAt = undefined;
+        state.cachedObsScenes = undefined;
+        state.obsSceneItemsCachedAt = undefined;
+        state.cachedObsSceneItems = undefined;
+        state.cachedObsSceneItemsForScene = undefined;
+        this.persistSession(interaction.user.id, state);
         await this.updateComponentReply(interaction, () => this.renderState(interaction.user.id, locale, state, t(locale, "menu.messages.obs_scenes_refreshed")));
     };
 
@@ -843,7 +889,7 @@ export default class MenuCommand extends Command {
         }
 
         try {
-            const statusResponse = await streamerService.getPrimaryStreamerObsStatus(guildId);
+            const statusResponse = await streamerService.sendObsCommandToStreamer<import("../types/obs-agent.types.js").ObsRelayGetStatusResult>(guildId, state.selectedObsStreamerNickname, "obs.getStatus");
             if (!statusResponse.success) {
                 await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, statusResponse.error.message));
                 return;
@@ -906,7 +952,7 @@ export default class MenuCommand extends Command {
         }
 
         try {
-            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.switchScene", { sceneName: state.selectedObsSceneName });
+            const response = await streamerService.sendObsCommandToStreamer<void>(guildId, state.selectedObsStreamerNickname, "obs.switchScene", { sceneName: state.selectedObsSceneName });
             if (!response.success) {
                 await this.replyToComponentInteraction(interaction, this.formatObsRelayError(locale, response.error.message));
                 return;
@@ -996,7 +1042,7 @@ export default class MenuCommand extends Command {
         }
 
         try {
-            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.setTextInputText", {
+            const response = await streamerService.sendObsCommandToStreamer<void>(guildId, state.selectedObsStreamerNickname, "obs.setTextInputText", {
                 inputName: state.selectedObsSourceName,
                 text: interaction.fields.getTextInputValue("text"),
             });
@@ -1032,7 +1078,7 @@ export default class MenuCommand extends Command {
         }
 
         try {
-            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.triggerMediaInputAction", {
+            const response = await streamerService.sendObsCommandToStreamer<void>(guildId, state.selectedObsStreamerNickname, "obs.triggerMediaInputAction", {
                 inputName: state.selectedObsSourceName,
                 mediaAction,
             });
@@ -1721,35 +1767,106 @@ export default class MenuCommand extends Command {
             );
         }
 
-        const primaryAgentResponse = await streamerService.getPrimaryGuildStreamerAgent(guildId);
-        if (!primaryAgentResponse.success) {
+        const streamersResponse = await streamerService.listGuildStreamers(guildId);
+        if (!streamersResponse.success) {
             return this.simplePanel(
                 t(locale, "menu.panels.obs_title"),
-                this.formatObsRelayError(locale, primaryAgentResponse.error.message),
+                this.formatObsRelayError(locale, streamersResponse.error.message),
                 locale,
                 [this.buildBackCategoryRow(locale, this.adminButton)]
             );
         }
 
-        const statusResponse = await streamerService.getPrimaryStreamerObsStatus(guildId);
-        const status = statusResponse.success ? statusResponse.data : {
-            connected: false,
-            currentSceneName: null,
-            endpoint: null,
-            obsVersion: null,
-            websocketVersion: null,
-        };
+        const streamers = streamersResponse.data;
+        if (!streamers.length) {
+            return this.simplePanel(
+                t(locale, "menu.panels.obs_title"),
+                t(locale, "menu.messages.obs_no_streamer"),
+                locale,
+                [this.buildBackCategoryRow(locale, this.adminButton)]
+            );
+        }
+
+        const resolvedNickname = this.resolveSelectedObsStreamer(streamers, state.selectedObsStreamerNickname);
+        state.selectedObsStreamerNickname = resolvedNickname;
+        const selectedStreamer = streamers.find(s => s.nickname === resolvedNickname)!;
+        const agentId = selectedStreamer.obsAgentId;
+
+        if (!agentId) {
+            this.persistSession(userId, state);
+            return {
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(0xdfb39f)
+                        .setTitle(`📺 ${t(locale, "menu.panels.obs_title")}`)
+                        .setDescription([
+                            t(locale, "menu.panels.obs_intro"),
+                            "",
+                            `• ${t(locale, "menu.panels.obs_streamer")}: ${selectedStreamer.nickname}${selectedStreamer.isPrimary ? " [primary]" : ""}`,
+                            `• Agent: ${t(locale, "menu.common.not_available")}`,
+                            `• ${t(locale, "menu.panels.obs_source")}: relay-agent`,
+                            "",
+                            t(locale, "menu.messages.obs_no_agent_named", { nickname: selectedStreamer.nickname }),
+                        ].filter(Boolean).join("\n")),
+                ],
+                components: this.buildObsComponentsOffline(locale, streamers, resolvedNickname),
+            };
+        }
+
+        const agentOnline = selectedStreamer.obsAgentOnline;
+        if (!agentOnline) {
+            this.persistSession(userId, state);
+            const maskedId = agentId.length > 20 ? agentId.slice(0, 20) + "…" : agentId;
+            return {
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(0xdfb39f)
+                        .setTitle(`📺 ${t(locale, "menu.panels.obs_title")}`)
+                        .setDescription([
+                            t(locale, "menu.panels.obs_intro"),
+                            "",
+                            `• ${t(locale, "menu.panels.obs_streamer")}: ${selectedStreamer.nickname}${selectedStreamer.isPrimary ? " [primary]" : ""}`,
+                            `• Agent: ${maskedId} [${t(locale, "menu.common.offline")}]`,
+                            `• ${t(locale, "menu.panels.obs_source")}: relay-agent`,
+                            "",
+                            t(locale, "menu.messages.obs_agent_offline_named", { nickname: selectedStreamer.nickname }),
+                        ].filter(Boolean).join("\n")),
+                ],
+                components: this.buildObsComponentsOffline(locale, streamers, resolvedNickname),
+            };
+        }
+
+        const now = Date.now();
+        const OBS_CACHE_TTL_MS = 5000;
+
+        let status: ObsRelayGetStatusResult = { connected: false, currentSceneName: null, endpoint: null, obsVersion: null, websocketVersion: null };
+        let statusError: string | null = null;
+        if (state.cachedObsStatus && state.obsStatusCachedAt && (now - state.obsStatusCachedAt) < OBS_CACHE_TTL_MS) {
+            status = state.cachedObsStatus;
+        } else {
+            const statusResponse = await streamerService.sendObsCommandToStreamer<ObsRelayGetStatusResult>(guildId, resolvedNickname, "obs.getStatus");
+            if (statusResponse.success) {
+                status = statusResponse.data;
+                state.cachedObsStatus = status;
+                state.obsStatusCachedAt = now;
+            } else {
+                statusError = this.formatObsRelayError(locale, statusResponse.error.message);
+            }
+        }
 
         let scenes: string[] = [];
-        let sources: Array<{ sourceName: string; enabled: boolean }> = [];
-        const statusError = statusResponse.success ? null : this.formatObsRelayError(locale, statusResponse.error.message);
-
-        const scenesResponse = await streamerService.listPrimaryStreamerScenes(guildId);
-        const scenesError = scenesResponse.success ? null : this.formatObsRelayError(locale, scenesResponse.error.message);
-        if (scenesResponse.success) {
-            scenes = scenesResponse.data
-                .map(scene => scene.sceneName)
-                .filter(sceneName => sceneName.length > 0);
+        let scenesError: string | null = null;
+        if (state.cachedObsScenes && state.obsScenesCachedAt && (now - state.obsScenesCachedAt) < OBS_CACHE_TTL_MS) {
+            scenes = state.cachedObsScenes;
+        } else {
+            const scenesResponse = await streamerService.sendObsCommandToStreamer<Array<{ sceneName: string }>>(guildId, resolvedNickname, "obs.listScenes");
+            if (scenesResponse.success) {
+                scenes = scenesResponse.data.map(s => s.sceneName).filter(s => s.length > 0);
+                state.cachedObsScenes = scenes;
+                state.obsScenesCachedAt = now;
+            } else {
+                scenesError = this.formatObsRelayError(locale, scenesResponse.error.message);
+            }
         }
 
         const resolvedScene = state.selectedObsSceneName && scenes.includes(state.selectedObsSceneName)
@@ -1757,24 +1874,36 @@ export default class MenuCommand extends Command {
             : status.currentSceneName && scenes.includes(status.currentSceneName)
                 ? status.currentSceneName
                 : scenes[0];
-
         state.selectedObsSceneName = resolvedScene;
 
+        let sources: Array<{ sourceName: string; enabled: boolean }> = [];
         let sourcesError: string | null = null;
         if (resolvedScene) {
-            const sceneItemsResponse = await streamerService.listPrimaryStreamerSceneItems(guildId, resolvedScene);
-            if (sceneItemsResponse.success) {
-                const sceneItems = sceneItemsResponse.data;
-                sources = sceneItems.map(item => ({ sourceName: item.sourceName, enabled: item.enabled }));
+            const cacheValid = state.cachedObsSceneItems
+                && state.obsSceneItemsCachedAt
+                && (now - state.obsSceneItemsCachedAt) < OBS_CACHE_TTL_MS
+                && state.cachedObsSceneItemsForScene === resolvedScene;
+            if (cacheValid) {
+                sources = state.cachedObsSceneItems!;
             } else {
-                sourcesError = this.formatObsRelayError(locale, sceneItemsResponse.error.message);
+                const sceneItemsResponse = await streamerService.sendObsCommandToStreamer<ObsRelaySceneItem[]>(guildId, resolvedNickname, "obs.listSceneItems", { sceneName: resolvedScene });
+                if (sceneItemsResponse.success) {
+                    sources = sceneItemsResponse.data.map(item => ({ sourceName: item.sourceName, enabled: item.enabled }));
+                    state.cachedObsSceneItems = sources;
+                    state.obsSceneItemsCachedAt = now;
+                    state.cachedObsSceneItemsForScene = resolvedScene;
+                } else {
+                    sourcesError = this.formatObsRelayError(locale, sceneItemsResponse.error.message);
+                }
             }
         }
 
-        state.selectedObsSourceName = state.selectedObsSourceName && sources.some(item => item.sourceName === state.selectedObsSourceName)
+        state.selectedObsSourceName = state.selectedObsSourceName && sources.some(s => s.sourceName === state.selectedObsSourceName)
             ? state.selectedObsSourceName
             : sources[0]?.sourceName;
         this.persistSession(userId, state);
+
+        const maskedAgentId = agentId.length > 20 ? agentId.slice(0, 20) + "…" : agentId;
 
         return {
             embeds: [
@@ -1785,9 +1914,8 @@ export default class MenuCommand extends Command {
                         t(locale, "menu.panels.obs_intro"),
                         "",
                         statusError ? `> ${statusError}` : null,
-                        `• Streamer: ${primaryAgentResponse.data.streamerNickname}`,
-                        `• Agent: ${primaryAgentResponse.data.agentId} (${t(locale, `menu.common.${primaryAgentResponse.data.online ? "online" : "offline"}`)})`,
-                        `• ${t(locale, "menu.panels.obs_connected")}: ${t(locale, `menu.common.${status.connected ? "yes" : "no"}`)}`,
+                        `• ${t(locale, "menu.panels.obs_streamer")}: ${selectedStreamer.nickname}${selectedStreamer.isPrimary ? " [primary]" : ""}`,
+                        `• Agent: ${maskedAgentId} [${t(locale, "menu.common.online")}]`,
                         `• ${t(locale, "menu.panels.obs_source")}: relay-agent`,
                         `• ${t(locale, "menu.panels.obs_endpoint")}: ${status.endpoint ?? t(locale, "menu.common.not_available")}`,
                         `• ${t(locale, "menu.panels.obs_scene")}: ${status.currentSceneName ?? t(locale, "menu.common.not_available")}`,
@@ -1811,7 +1939,7 @@ export default class MenuCommand extends Command {
                             : t(locale, "menu.panels.obs_sources_empty"),
                     ].filter(Boolean).join("\n")),
             ],
-            components: this.buildObsComponents(locale, scenes, sources, Boolean(state.selectedObsSceneName), Boolean(state.selectedObsSourceName)),
+            components: this.buildObsComponents(locale, streamers, resolvedNickname, scenes, sources, Boolean(state.selectedObsSceneName), Boolean(state.selectedObsSourceName)),
         };
     }
 
@@ -2135,8 +2263,75 @@ export default class MenuCommand extends Command {
         ];
     }
 
-    private buildObsComponents(locale: LocalesCodes, scenes: string[], sources: Array<{ sourceName: string; enabled: boolean }>, hasSceneSelection: boolean, hasSourceSelection: boolean) {
-        return [
+    private resolveSelectedObsStreamer(streamers: GuildStreamerView[], selectedNickname?: string): string {
+        if (selectedNickname) {
+            const match = streamers.find(s => s.nickname === selectedNickname);
+            if (match) return match.nickname;
+        }
+        return streamers.find(s => s.isPrimary)?.nickname ?? streamers[0].nickname;
+    }
+
+    private buildObsComponentsOffline(locale: LocalesCodes, streamers: GuildStreamerView[], selectedNickname?: string) {
+        const rows: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] = [];
+
+        if (streamers.length > 1) {
+            rows.push(
+                new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(this.obsStreamerSelect.toString())
+                        .setPlaceholder(t(locale, "menu.selects.obs_streamer"))
+                        .setMinValues(1)
+                        .setMaxValues(1)
+                        .setOptions(streamers.slice(0, 25).map(streamer => {
+                            const statusTag = !streamer.obsAgentId ? " [no agent]" : streamer.obsAgentOnline ? " [online]" : " [offline]";
+                            const primaryTag = streamer.isPrimary ? " [primary]" : "";
+                            return {
+                                label: `${streamer.nickname}${primaryTag}${statusTag}`.slice(0, 100),
+                                value: streamer.nickname,
+                                default: streamer.nickname === selectedNickname,
+                            };
+                        }))
+                )
+            );
+        }
+
+        rows.push(
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                this.createButton(this.obsStatusButton, t(locale, "menu.buttons.obs_status"), ButtonStyle.Secondary, "🛰️"),
+                this.createButton(this.adminButton, t(locale, "menu.buttons.admin"), ButtonStyle.Secondary, "🧰"),
+                this.createButton(this.homeButton, t(locale, "menu.buttons.home"), ButtonStyle.Secondary, "🏠"),
+            )
+        );
+
+        return rows;
+    }
+
+    private buildObsComponents(locale: LocalesCodes, streamers: GuildStreamerView[], selectedNickname: string | undefined, scenes: string[], sources: Array<{ sourceName: string; enabled: boolean }>, hasSceneSelection: boolean, hasSourceSelection: boolean) {
+        const rows: ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>[] = [];
+        const hasMultiStreamers = streamers.length > 1;
+
+        if (hasMultiStreamers) {
+            rows.push(
+                new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(this.obsStreamerSelect.toString())
+                        .setPlaceholder(t(locale, "menu.selects.obs_streamer"))
+                        .setMinValues(1)
+                        .setMaxValues(1)
+                        .setOptions(streamers.slice(0, 25).map(streamer => {
+                            const statusTag = !streamer.obsAgentId ? " [no agent]" : streamer.obsAgentOnline ? " [online]" : " [offline]";
+                            const primaryTag = streamer.isPrimary ? " [primary]" : "";
+                            return {
+                                label: `${streamer.nickname}${primaryTag}${statusTag}`.slice(0, 100),
+                                value: streamer.nickname,
+                                default: streamer.nickname === selectedNickname,
+                            };
+                        }))
+                )
+            );
+        }
+
+        rows.push(
             new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
                 new StringSelectMenuBuilder()
                     .setCustomId(this.obsSceneSelect.toString())
@@ -2166,23 +2361,19 @@ export default class MenuCommand extends Command {
             new ActionRowBuilder<ButtonBuilder>().addComponents(
                 this.createButton(this.obsStatusButton, t(locale, "menu.buttons.obs_status"), ButtonStyle.Secondary, "🛰️"),
                 this.createButton(this.obsScenesButton, t(locale, "menu.buttons.obs_scenes"), ButtonStyle.Secondary, "🎬"),
-                this.createButton(this.obsReconnectButton, t(locale, "menu.buttons.obs_reconnect"), ButtonStyle.Secondary, "🔌"),
-                this.createButton(this.obsConfigShowButton, t(locale, "menu.buttons.obs_config_show"), ButtonStyle.Secondary, "👁️"),
-                this.createButton(this.obsConfigSetButton, t(locale, "menu.buttons.obs_config_set"), ButtonStyle.Primary, "⚙️"),
-            ),
-            new ActionRowBuilder<ButtonBuilder>().addComponents(
-                this.createButton(this.obsConfigClearButton, t(locale, "menu.buttons.obs_config_clear"), ButtonStyle.Danger, "🧹"),
                 this.createButton(this.obsSwitchSceneButton, t(locale, "menu.buttons.obs_switch_scene"), ButtonStyle.Success, "🎞️", !hasSceneSelection),
                 this.createButton(this.obsShowSourceButton, t(locale, "menu.buttons.obs_show_source"), ButtonStyle.Success, "🟢", !hasSceneSelection || !hasSourceSelection),
                 this.createButton(this.obsHideSourceButton, t(locale, "menu.buttons.obs_hide_source"), ButtonStyle.Secondary, "⚫", !hasSceneSelection || !hasSourceSelection),
-                this.createButton(this.obsSetTextButton, t(locale, "menu.buttons.obs_set_text"), ButtonStyle.Primary, "✍️", !hasSourceSelection),
             ),
             new ActionRowBuilder<ButtonBuilder>().addComponents(
+                this.createButton(this.obsSetTextButton, t(locale, "menu.buttons.obs_set_text"), ButtonStyle.Primary, "✍️", !hasSourceSelection),
                 this.createButton(this.obsMediaActionButton, t(locale, "menu.buttons.obs_media_action"), ButtonStyle.Secondary, "🎵", !hasSourceSelection),
                 this.createButton(this.adminButton, t(locale, "menu.buttons.admin"), ButtonStyle.Secondary, "🧰"),
                 this.createButton(this.homeButton, t(locale, "menu.buttons.home"), ButtonStyle.Secondary, "🏠"),
             ),
-        ];
+        );
+
+        return rows;
     }
 
     private buildInventoryComponents(locale: LocalesCodes, items: InventoryItemView[], hasPrev: boolean, hasNext: boolean, allowUserPick: boolean, ownInventory: boolean, hasSelection: boolean, selectedTradeable: boolean) {
@@ -2812,8 +3003,16 @@ export default class MenuCommand extends Command {
             guildId,
             inventoryTargetUserId: userId,
             selectedContributorUserId: undefined,
+            selectedObsStreamerNickname: undefined,
             selectedObsSceneName: undefined,
             selectedObsSourceName: undefined,
+            obsStatusCachedAt: undefined,
+            cachedObsStatus: undefined,
+            obsScenesCachedAt: undefined,
+            cachedObsScenes: undefined,
+            obsSceneItemsCachedAt: undefined,
+            cachedObsSceneItemsForScene: undefined,
+            cachedObsSceneItems: undefined,
             selectedAdminItemTemplateId: undefined,
             selectedAdminRarityId: undefined,
             selectedInventoryItemId: undefined,
@@ -2934,7 +3133,7 @@ export default class MenuCommand extends Command {
         }
 
         try {
-            const response = await streamerService.sendObsCommandToPrimaryStreamer<void>(guildId, "obs.setSourceVisibility", {
+            const response = await streamerService.sendObsCommandToStreamer<void>(guildId, state.selectedObsStreamerNickname, "obs.setSourceVisibility", {
                 sceneName: state.selectedObsSceneName,
                 sourceName: state.selectedObsSourceName,
                 visible,
@@ -2972,10 +3171,18 @@ export default class MenuCommand extends Command {
         }
 
         if (normalized.includes("has no obs agent configured")) {
+            const match = message.match(/^Streamer '([^']+)' has no/i);
+            if (match) {
+                return t(locale, "menu.messages.obs_no_agent_named", { nickname: match[1] });
+            }
             return t(locale, "menu.messages.obs_no_agent");
         }
 
         if (normalized.includes("is offline")) {
+            const match = message.match(/^OBS Agent for '([^']+)' is offline/i);
+            if (match) {
+                return t(locale, "menu.messages.obs_agent_offline_named", { nickname: match[1] });
+            }
             return t(locale, "menu.messages.obs_agent_offline");
         }
 

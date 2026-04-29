@@ -74,6 +74,12 @@ export interface PrimaryGuildStreamerAgentView {
     online: boolean;
 }
 
+export interface ObsTargetView {
+    streamer: GuildStreamerView;
+    agentId: string;
+    online: boolean;
+}
+
 interface StreamerAgentBindingRecord {
     streamerId: number;
     agentId: string;
@@ -433,6 +439,91 @@ export class StreamerService {
 
     async getPrimaryStreamerObsStatus(discordGuildId: string): Promise<DBResponse<ObsRelayGetStatusResult>> {
         return this.sendObsCommandToPrimaryStreamer<ObsRelayGetStatusResult>(discordGuildId, "obs.getStatus");
+    }
+
+    async resolveObsTargetForGuild(
+        discordGuildId: string,
+        selectedNickname?: string | null,
+    ): Promise<DBResponse<ObsTargetView>> {
+        try {
+            const normalizedGuildId = discordGuildId.trim();
+            if (!normalizedGuildId) {
+                return {
+                    success: false,
+                    error: { reason: "unknown", relatedTo: "guilds", message: "OBS relay requires a Discord guild id." },
+                };
+            }
+
+            const listResponse = await this.listGuildStreamers(normalizedGuildId);
+            if (DataBaseHandler.isFail(listResponse)) {
+                return listResponse;
+            }
+
+            if (!listResponse.data.length) {
+                return {
+                    success: false,
+                    error: { reason: "record_not_found", relatedTo: "guild_streamers", message: "This server has no registered streamers yet." },
+                };
+            }
+
+            let streamer: GuildStreamerView | undefined;
+            const normalizedNickname = selectedNickname?.trim().toLowerCase();
+            if (normalizedNickname) {
+                streamer = listResponse.data.find(s => s.nickname === normalizedNickname);
+            }
+            if (!streamer) {
+                streamer = listResponse.data.find(s => s.isPrimary) ?? listResponse.data[0];
+            }
+
+            if (!streamer.obsAgentId) {
+                return {
+                    success: false,
+                    error: {
+                        reason: "record_not_found",
+                        relatedTo: "bot_settings",
+                        message: `Streamer '${streamer.nickname}' has no OBS Agent configured. Use /streamer agent_pair nickname:${streamer.nickname}.`,
+                    },
+                };
+            }
+
+            const online = obsRelayService.isAgentConnected(streamer.obsAgentId);
+            if (!online) {
+                return {
+                    success: false,
+                    error: {
+                        reason: "unknown",
+                        relatedTo: "bot_settings",
+                        message: `OBS Agent for '${streamer.nickname}' is offline. Start Balkon OBS Agent on the streamer PC.`,
+                    },
+                };
+            }
+
+            return {
+                success: true,
+                data: { streamer, agentId: streamer.obsAgentId, online },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async sendObsCommandToStreamer<T>(
+        discordGuildId: string,
+        selectedNickname: string | null | undefined,
+        command: ObsRelayCommandName,
+        payload?: Record<string, unknown>,
+    ): Promise<DBResponse<T>> {
+        try {
+            const targetResult = await this.resolveObsTargetForGuild(discordGuildId, selectedNickname);
+            if (DataBaseHandler.isFail(targetResult)) {
+                return targetResult;
+            }
+
+            const result = await obsRelayService.sendCommand<T>(targetResult.data.agentId, command, payload);
+            return { success: true, data: result };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
     }
 
     async upsertItemServiceAction(input: {

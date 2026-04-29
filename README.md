@@ -135,7 +135,22 @@ Bot-side binding flow:
 3. Put the generated values into `balkon-obs-agent` on the streamer PC.
 4. Connect the app and check status with `/streamer agent_show` or `/streamer list`.
 5. Use `/serviceuse` and service items will route OBS actions through that streamer's local agent.
-6. OBS controls in `/menu` and `/botmenu` use the primary streamer's connected OBS Agent via relay (not direct OBS connection from the bot host).
+
+### /botmenu OBS panel
+
+The `/botmenu → OBS` panel is a clean OBS Agent control panel. It does not use a direct
+`OBS_WEBSOCKET_URL` connection from the bot server.
+
+- A guild can have multiple streamers registered, each with their own OBS Agent.
+- If only one streamer is registered, the panel auto-selects that streamer.
+- If multiple streamers are registered, a **Select Streamer** dropdown appears so you can choose which streamer's OBS to control.
+- The primary streamer is selected by default when opening the panel.
+- To register a streamer: `/streamer register nickname:<name>`
+- To pair an OBS Agent: `/streamer agent_pair nickname:<name>`
+- Start Balkon OBS Agent desktop app on the streamer PC.
+- Then use `/botmenu → OBS` to select the streamer and control OBS via relay.
+
+Legacy direct `Config / Set config / Clear config` buttons are not shown in the relay-agent panel.
 
 Manual fallback still exists:
 

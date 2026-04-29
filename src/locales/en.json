@@ -244,6 +244,7 @@
             "obs_connected": "Connected: {value}",
             "obs_source": "Config source: {value}",
             "obs_endpoint": "Endpoint: {value}",
+            "obs_streamer": "Streamer",
             "obs_scene": "Current scene: {value}",
             "obs_selected_scene": "Selected scene: {value}",
             "obs_selected_source": "Selected source: {value}",
@@ -270,6 +271,7 @@
             "craft": "Choose a recipe",
             "obs_scene": "Choose an OBS scene",
             "obs_source": "Choose an OBS source",
+            "obs_streamer": "Select streamer",
             "locale": "Choose your language"
         },
         "locale_names": {
@@ -339,7 +341,9 @@
             "obs_no_guild": "OBS relay controls are available only inside a Discord server (guild).",
             "obs_no_streamer": "No streamers are registered for this guild yet. Register a streamer first.",
             "obs_no_agent": "Primary streamer has no OBS Agent configured. Pair the agent first.",
+            "obs_no_agent_named": "Streamer '{nickname}' has no OBS Agent configured. Use /streamer agent_pair nickname:{nickname}.",
             "obs_agent_offline": "Primary streamer's OBS Agent is offline. Ask the streamer to connect the agent app.",
+            "obs_agent_offline_named": "OBS Agent for '{nickname}' is offline. Start Balkon OBS Agent on the streamer PC.",
             "obs_relay_timeout": "OBS relay command timed out. Agent is connected but did not respond in time.",
             "obs_relay_failed": "OBS relay command failed.",
             "no_tradeable_items": "No tradeable items available",

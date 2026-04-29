@@ -244,6 +244,7 @@
             "obs_connected": "Подключен: {value}",
             "obs_source": "Источник конфига: {value}",
             "obs_endpoint": "Endpoint: {value}",
+            "obs_streamer": "Стример",
             "obs_scene": "Текущая сцена: {value}",
             "obs_selected_scene": "Выбранная сцена: {value}",
             "obs_selected_source": "Выбранный source: {value}",
@@ -270,6 +271,7 @@
             "craft": "Выбери рецепт",
             "obs_scene": "Выбери сцену OBS",
             "obs_source": "Выбери OBS source",
+            "obs_streamer": "Выбери стримера",
             "locale": "Выбери язык"
         },
         "locale_names": {
@@ -339,7 +341,9 @@
             "obs_no_guild": "Relay-управление OBS доступно только внутри Discord-сервера (guild).",
             "obs_no_streamer": "Для этого guild пока не зарегистрирован ни один стример. Сначала зарегистрируй стримера.",
             "obs_no_agent": "У primary-стримера не настроен OBS Agent. Сначала выполни pairing агента.",
+            "obs_no_agent_named": "У стримера '{nickname}' не настроен OBS Agent. Используй /streamer agent_pair nickname:{nickname}.",
             "obs_agent_offline": "OBS Agent primary-стримера офлайн. Попроси стримера подключить агент-приложение.",
+            "obs_agent_offline_named": "OBS Agent стримера '{nickname}' офлайн. Запусти Balkon OBS Agent на PC стримера.",
             "obs_relay_timeout": "Команда relay к OBS истекла по таймауту. Агент подключён, но не ответил вовремя.",
             "obs_relay_failed": "Команда relay к OBS завершилась ошибкой.",
             "no_tradeable_items": "Нет предметов, которые можно выставить",
