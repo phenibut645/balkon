@@ -1,30 +1,27 @@
-Balkon Personal Use License (2025)
+Balkon Custom Source-Available License
 
-Copyright (c) 2025 phenibut645
+Copyright (c) 2026 phenibut645
 
-Permission is hereby granted to use Balkon strictly for personal, non-commercial purposes. Any other use is strictly prohibited, including, but not limited to:
+This project is source-available, not open source.
 
-1. Selling, distributing, or commercial exploitation of Balkon.
-2. Claiming Balkon or its source code as your own.
-3. Deploying or operating Balkon on large public servers with more than 50 members without prior written consent from the author.
-4. Modifying, adapting, or creating derivative works of Balkon in a manner that would circumvent or violate any provision of this license.
+You may read, study and run the code locally for private learning, testing and evaluation.
 
-You are permitted to:
+You may not use, publish, host, sell, redistribute, rebrand or release this project, or a modified version of it, as your own bot, product, service, package or public repository without prior written permission from phenibut645.
 
-- Download, install, and use Balkon on personal servers (subject to the above limitations).
-- Study the source code of Balkon for personal education and experimentation, provided that such study does not result in any use or redistribution that violates this license.
+You may not deploy this project, or a modified version of it, on public Discord servers, client servers, commercial servers, paid communities or community projects without prior written permission from phenibut645.
 
-You are prohibited from:
+You may not remove author attribution, copyright notices, project branding or license notices.
 
-- Redistributing, selling, renting, or otherwise providing Balkon or any modified version of it to third parties.
-- Using Balkon or any modified version on large public servers without the author's explicit permission.
-- Claiming authorship or removing author attribution from Balkon.
-- Modifying Balkon in any way that would allow circumvention of the above restrictions.
+You may not use substantial parts of this project, including its Discord command system, interactive menu architecture, database schema, economy logic, streamer workflows or OBS relay approach, to create a competing or rebranded bot without prior written permission from phenibut645.
 
-DISCLAIMER OF WARRANTY:
+Forks are allowed only for private review, private experimentation and proposing changes back to the original repository. A fork does not grant permission to publish, deploy or distribute an independent version of the project.
 
-Balkon is provided "as-is," without any express or implied warranties, including, but not limited to, warranties of merchantability or fitness for a particular purpose. In no event shall the author be liable for any damages arising from the use or inability to use Balkon.
+By submitting a pull request, patch or suggestion, you grant phenibut645 permission to use that contribution in Balkon and related projects.
 
-Contact:
+Related repositories such as balkon-obs-agent and balkon-website may have separate licenses. This license applies only to the phenibut645/balkon repository unless stated otherwise.
 
-For inquiries regarding commercial licensing, redistribution, or special permissions, please contact the author at doe481157@gmail.com.
+This software is provided as is, without warranty of any kind. The author is not liable for damages, data loss, downtime, account issues, database problems or streaming disruptions caused by using this software.
+
+For public deployment, redistribution, commercial use, derivative projects or special permission, contact phenibut645 through GitHub:
+
+https://github.com/phenibut645
