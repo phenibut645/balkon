@@ -1,6 +1,7 @@
 import Fastify, { FastifyError } from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyRateLimit from "@fastify/rate-limit";
+import fastifyCookie from "@fastify/cookie";
 import { registerBaseRoutes } from "./routes/baseRoutes.js";
 import { registerDashboardRoutes } from "./routes/dashboardRoutes.js";
 import { registerBridgeRoutes } from "./routes/bridgeRoutes.js";
@@ -29,6 +30,8 @@ await app.register(fastifyRateLimit, {
   max: 120,
   timeWindow: "1 minute",
 });
+
+await app.register(fastifyCookie);
 
 app.addHook("preHandler", attachDevSession);
 

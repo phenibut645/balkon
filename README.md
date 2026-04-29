@@ -29,6 +29,7 @@
 - [What is Balkon?](#-what-is-balkon)
 - [Ecosystem](#-ecosystem)
 - [Features](#-features)
+- [Discord OAuth2 setup](#-discord-oauth2-setup)
 - [Quick start](#-quick-start)
 - [Production deploy](#-production-deploy)
 - [OBS Agent mode](#-obs-agent-mode)
@@ -131,7 +132,14 @@ Implemented first endpoints:
 
 ### API auth safety boundary
 
-Discord OAuth routes are scaffolded but not implemented yet, so production website auth is not ready.
+Discord OAuth2 Authorization Code Grant is implemented in `balkon-api`.
+
+Important:
+
+- OAuth2 is implemented in the API, not in the website frontend.
+- Website must not store Discord client secret.
+- Website login button should redirect user to `GET /api/auth/discord`.
+- Website then calls API routes (for example `/api/me`) with credentials included.
 
 Development header auth is intentionally gated and disabled by default:
 
@@ -139,9 +147,39 @@ Development header auth is intentionally gated and disabled by default:
 - Works only when `API_DEV_AUTH_ENABLED=true`.
 - If `API_DEV_AUTH_ENABLED` is missing, header auth stays disabled.
 - In `NODE_ENV=prod`, `x-dev-discord-id` and `x-dev-roles` are ignored.
-- Protected routes in production currently return `401` until real OAuth/session auth is implemented.
 
-Real public website usage requires Discord OAuth and server-side sessions.
+Production behavior:
+
+- Public production API requires real OAuth/session auth.
+- Without a valid session cookie, protected routes return `401`.
+
+### Discord OAuth2 setup
+
+1. Open Discord Developer Portal.
+2. Select the existing bot application.
+3. Go to **OAuth2 -> General**.
+4. Copy Client ID into `DISCORD_OAUTH_CLIENT_ID`.
+5. Copy Client Secret into `DISCORD_OAUTH_CLIENT_SECRET`.
+6. Add redirect URI:
+   `http://localhost:3001/api/auth/discord/callback` for local.
+   `https://your-api-domain.example/api/auth/discord/callback` for production.
+7. Set website redirect variables:
+   `WEB_APP_URL`, `WEB_APP_AUTH_SUCCESS_URL`, `WEB_APP_AUTH_ERROR_URL`.
+8. Run migrations:
+   `npm run db:migrate:dev`
+9. Start API:
+   `npm run dev:api`
+10. Website login button should redirect to:
+   `http://localhost:3001/api/auth/discord`
+
+### OAuth behavior summary
+
+- `GET /api/auth/discord` redirects to Discord authorize URL.
+- `GET /api/auth/discord/callback` validates state, exchanges code, creates DB session, sets secure httpOnly cookie, and redirects to website.
+- `POST /api/auth/logout` revokes/deletes server-side session and clears cookie.
+- `GET /api/me` works with real OAuth session cookie.
+- `GET /api/me` also works with dev headers only when `NODE_ENV !== prod` and `API_DEV_AUTH_ENABLED=true`.
+- In production, dev headers do not authenticate.
 
 ### Development-only headers (disabled by default)
 

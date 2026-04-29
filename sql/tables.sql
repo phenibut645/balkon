@@ -263,6 +263,28 @@ CREATE INDEX idx_bot_commands_status_id ON bot_commands(status, id);
 CREATE INDEX idx_bot_commands_requested_by ON bot_commands(requested_by_discord_id);
 CREATE INDEX idx_bot_commands_guild_id ON bot_commands(guild_id);
 
+CREATE TABLE api_sessions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    session_token_hash CHAR(64) NOT NULL UNIQUE,
+    discord_id VARCHAR(32) NOT NULL,
+    username VARCHAR(255) NULL,
+    global_name VARCHAR(255) NULL,
+    avatar VARCHAR(255) NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NULL,
+    token_expires_at TIMESTAMP NULL,
+    scopes VARCHAR(255) NOT NULL,
+    user_json JSON NULL,
+    guilds_json JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP NULL
+);
+
+CREATE INDEX idx_api_sessions_discord_id ON api_sessions(discord_id);
+CREATE INDEX idx_api_sessions_expires_at ON api_sessions(expires_at);
+
 CREATE TABLE streamers (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nickname VARCHAR(255) UNIQUE NOT NULL,

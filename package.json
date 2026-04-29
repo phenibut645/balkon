@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.0",
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/rate-limit": "^10.3.0",
     "discord.js": "^14.22.1",

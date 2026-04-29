@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS api_sessions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    session_token_hash CHAR(64) NOT NULL UNIQUE,
+    discord_id VARCHAR(32) NOT NULL,
+    username VARCHAR(255) NULL,
+    global_name VARCHAR(255) NULL,
+    avatar VARCHAR(255) NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NULL,
+    token_expires_at TIMESTAMP NULL,
+    scopes VARCHAR(255) NOT NULL,
+    user_json JSON NULL,
+    guilds_json JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP NULL,
+    INDEX idx_api_sessions_discord_id (discord_id),
+    INDEX idx_api_sessions_expires_at (expires_at)
+);
