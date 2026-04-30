@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { ItemService } from "../../core/ItemService.js";
 import { EconomyService } from "../../core/EconomyService.js";
+import { NotificationService, NotificationSeverity } from "../../core/NotificationService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -68,6 +69,62 @@ function parseOptionalHomeGuildId(value: unknown): string | null | undefined {
   return normalized;
 }
 
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function parseOptionalUrl(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized.length) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function isNotificationSeverity(value: unknown): value is NotificationSeverity {
+  return value === "info" || value === "success" || value === "warning" || value === "danger";
+}
+
 function isPositivePrice(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
@@ -81,6 +138,8 @@ function serviceErrorResponse(defaultCode: string, defaultMessage: string, error
 }
 
 export async function registerDashboardRoutes(app: FastifyInstance): Promise<void> {
+  const notificationService = NotificationService.getInstance();
+
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
     me: {
@@ -185,6 +244,106 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
+  app.get("/notifications", { preHandler: requireAuth }, async request => {
+    try {
+      const query = request.query as {
+        page?: unknown;
+        pageSize?: unknown;
+        unreadOnly?: unknown;
+        type?: unknown;
+      };
+
+      const parsedPage = parsePositiveInteger(query.page);
+      const parsedPageSize = parsePositiveInteger(query.pageSize);
+      const unreadOnly = parseOptionalBoolean(query.unreadOnly);
+      const type = parseOptionalText(query.type);
+
+      const page = parsedPage ?? 1;
+      const pageSize = Math.min(50, Math.max(1, parsedPageSize ?? 10));
+
+      const result = await notificationService.listForUser(request.authUser!.discordId, {
+        page,
+        pageSize,
+        unreadOnly,
+        type: type ?? null,
+      });
+
+      return {
+        ok: true,
+        notifications: result.items,
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        unreadCount: result.unreadCount,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "NOTIFICATIONS_LOAD_FAILED",
+        "Failed to load notifications.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/notifications/summary", { preHandler: requireAuth }, async request => {
+    try {
+      const [unreadCount, latest] = await Promise.all([
+        notificationService.getUnreadCount(request.authUser!.discordId),
+        notificationService.listLatest(request.authUser!.discordId, 3),
+      ]);
+
+      return {
+        ok: true,
+        unreadCount,
+        latest,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "NOTIFICATIONS_SUMMARY_FAILED",
+        "Failed to load notifications summary.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/notifications/:notificationId/read", { preHandler: requireAuth }, async request => {
+    try {
+      const notificationId = parsePositiveInteger((request.params as { notificationId?: string }).notificationId);
+      if (!notificationId) {
+        return {
+          ok: false,
+          error: "INVALID_NOTIFICATION_ID",
+          message: "notificationId must be a positive integer.",
+        };
+      }
+
+      await notificationService.markRead(request.authUser!.discordId, notificationId);
+      return { ok: true };
+    } catch (error) {
+      return serviceErrorResponse(
+        "NOTIFICATION_MARK_READ_FAILED",
+        "Failed to mark notification as read.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/notifications/read-all", { preHandler: requireAuth }, async request => {
+    try {
+      const updated = await notificationService.markAllRead(request.authUser!.discordId);
+      return {
+        ok: true,
+        updated,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "NOTIFICATIONS_MARK_ALL_READ_FAILED",
+        "Failed to mark all notifications as read.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.patch("/profile/me", { preHandler: requireAuth }, async request => {
     try {
       const body = (request.body ?? {}) as Record<string, unknown>;
@@ -278,6 +437,111 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       ok: true,
       stats,
     };
+  });
+
+  app.post("/admin/notifications/broadcast", { preHandler: [requireAuth, requireBotAdmin] }, async request => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const title = parseOptionalText(body.title);
+    const message = parseOptionalText(body.body);
+    const imageUrl = parseOptionalUrl(body.imageUrl);
+    const linkUrl = parseOptionalUrl(body.linkUrl);
+    const severity = body.severity ?? "info";
+
+    if (!title) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_TITLE",
+        message: "title is required.",
+      };
+    }
+
+    if (title.length > 160) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_TITLE",
+        message: "title must be 160 characters or less.",
+      };
+    }
+
+    if (!message) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_BODY",
+        message: "body is required.",
+      };
+    }
+
+    if (message.length > 2000) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_BODY",
+        message: "body must be 2000 characters or less.",
+      };
+    }
+
+    if (body.imageUrl !== undefined && body.imageUrl !== null && imageUrl === null) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_IMAGE_URL",
+        message: "imageUrl must be a valid URL.",
+      };
+    }
+
+    if (imageUrl && imageUrl.length > 1000) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_IMAGE_URL",
+        message: "imageUrl must be 1000 characters or less.",
+      };
+    }
+
+    if (body.linkUrl !== undefined && body.linkUrl !== null && linkUrl === null) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_LINK_URL",
+        message: "linkUrl must be a valid URL.",
+      };
+    }
+
+    if (linkUrl && linkUrl.length > 1000) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_LINK_URL",
+        message: "linkUrl must be 1000 characters or less.",
+      };
+    }
+
+    if (!isNotificationSeverity(severity)) {
+      return {
+        ok: false,
+        error: "INVALID_NOTIFICATION_SEVERITY",
+        message: "severity must be one of: info, success, warning, danger.",
+      };
+    }
+
+    try {
+      const inserted = await notificationService.broadcastToAllMembers(request.authUser!.discordId, {
+        type: "admin_broadcast",
+        severity,
+        title,
+        body: message,
+        imageUrl,
+        linkUrl,
+      });
+
+      return {
+        ok: true,
+        data: {
+          inserted,
+        },
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "ADMIN_BROADCAST_NOTIFICATION_FAILED",
+        "Failed to send broadcast notification.",
+        error instanceof Error ? error : undefined,
+      );
+    }
   });
 
   app.get("/admin/items", { preHandler: [requireAuth, requireBotAdmin] }, async () => {
