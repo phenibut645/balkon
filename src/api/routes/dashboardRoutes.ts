@@ -28,6 +28,21 @@ function parsePositiveInteger(value: unknown): number | null {
   return null;
 }
 
+function parseInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
 function parseOptionalText(value: unknown): string | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -1167,6 +1182,75 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       return serviceErrorResponse(
         "ECONOMY_LOAD_FAILED",
         "Failed to load balance.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/admin/economy/adjust", { preHandler: [requireAuth, requireBotAdmin] }, async request => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const targetDiscordId = parseOptionalText(body.targetDiscordId);
+    const currency = parseOptionalText(body.currency);
+    const amount = parseInteger(body.amount);
+    const reason = parseOptionalText(body.reason);
+
+    if (!targetDiscordId || !/^\d{1,32}$/.test(targetDiscordId)) {
+      return {
+        ok: false,
+        error: "INVALID_TARGET_DISCORD_ID",
+        message: "targetDiscordId must contain digits only and be at most 32 characters.",
+      };
+    }
+
+    if (currency !== "ODM" && currency !== "LDM") {
+      return {
+        ok: false,
+        error: "INVALID_CURRENCY",
+        message: "currency must be ODM or LDM.",
+      };
+    }
+
+    if (amount === null || amount === 0 || Math.abs(amount) > 1_000_000) {
+      return {
+        ok: false,
+        error: "INVALID_AMOUNT",
+        message: "amount must be a non-zero integer with absolute value up to 1000000.",
+      };
+    }
+
+    if (!reason || reason.length < 3 || reason.length > 300) {
+      return {
+        ok: false,
+        error: "INVALID_REASON",
+        message: "reason must be between 3 and 300 characters.",
+      };
+    }
+
+    try {
+      const data = await EconomyService.getInstance().adjustMemberBalanceByAdmin({
+        adminDiscordId: request.authUser!.discordId,
+        targetDiscordId,
+        currency,
+        amount,
+        reason,
+      });
+
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      if (EconomyService.getInstance().isAdminAdjustmentError(error)) {
+        return {
+          ok: false,
+          error: error.code,
+          message: error.message,
+        };
+      }
+
+      return serviceErrorResponse(
+        "BALANCE_ADJUST_FAILED",
+        "Failed to adjust balance.",
         error instanceof Error ? error : undefined,
       );
     }
