@@ -45,6 +45,11 @@ export interface GuildRolesDB extends DefaultDBTable {
 
 export interface MembersDB extends DefaultDBTable {
     ds_member_id: string,
+    discord_username?: string | null,
+    discord_global_name?: string | null,
+    discord_avatar?: string | null,
+    discord_avatar_url?: string | null,
+    discord_profile_updated_at?: number | Date | null,
     balance: number,
     ldm_balance?: number,
     home_guild_id?: string | null,

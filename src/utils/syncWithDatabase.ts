@@ -1,6 +1,7 @@
 import { Client } from "discord.js";
 import { saveGuildBootstrapStatus } from "../core/BotAdmin.js";
 import { DataBaseHandler } from "../core/DataBaseHandler.js";
+import { DiscordMetadataService } from "../core/DiscordMetadataService.js";
 import { GuildsDB } from "../types/database.types.js";
 
 export interface DataBaseSynchronisationResponse {
@@ -9,6 +10,7 @@ export interface DataBaseSynchronisationResponse {
 
 export async function syncDiscordClientWithDatabase(client: Client): Promise<DataBaseSynchronisationResponse> {
     const dbHandler = DataBaseHandler.getInstance();
+    const metadataService = DiscordMetadataService.getInstance();
     const dbGuilds = await dbHandler.getFromTable<GuildsDB>("guilds");
     const discordGuilds = await client.guilds.fetch();
     
@@ -26,6 +28,11 @@ export async function syncDiscordClientWithDatabase(client: Client): Promise<Dat
 
     for (const discordGuild of discordGuilds.values()) {
         const guild = await discordGuild.fetch();
+        await metadataService.upsertGuildDiscordMetadata({
+            guildId: guild.id,
+            displayName: guild.name,
+            iconUrl: guild.iconURL({ size: 128 }) ?? null,
+        });
         const bootstrapResponse = await dbHandler.ensureGuildBootstrap(guild);
         if (DataBaseHandler.isFail(bootstrapResponse)) {
             await saveGuildBootstrapStatus({

@@ -1,9 +1,15 @@
 import { Guild } from "discord.js";
 import { saveGuildBootstrapStatus } from "../core/BotAdmin.js";
 import { dataBaseHandler, DataBaseHandler } from "../core/DataBaseHandler.js";
+import { DiscordMetadataService } from "../core/DiscordMetadataService.js";
 
 export const guildCreateController = async (guild: Guild) => {
   console.log(`📝 ${guild.name} (Guild) is adding to database...`)
+  await DiscordMetadataService.getInstance().upsertGuildDiscordMetadata({
+    guildId: guild.id,
+    displayName: guild.name,
+    iconUrl: guild.iconURL({ size: 128 }) ?? null,
+  });
   const response = await dataBaseHandler.ensureGuildBootstrap(guild);
   if(DataBaseHandler.isSuccess(response)){
     if (response.data.bootstrapChannelId) {

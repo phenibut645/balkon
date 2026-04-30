@@ -23,6 +23,8 @@ const app = Fastify({
 await app.register(fastifyCors, {
   origin: allowedOrigins.length ? allowedOrigins : false,
   credentials: true,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 });
 
 await app.register(fastifyRateLimit, {

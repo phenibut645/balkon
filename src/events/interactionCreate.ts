@@ -4,9 +4,22 @@ import { permissionController } from "../core/PermissionController.js";
 import { CommandAccessLevels } from "../types/database.types.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
 import { DataBaseHandler, dataBaseHandler } from "../core/DataBaseHandler.js";
+import { DiscordMetadataService } from "../core/DiscordMetadataService.js";
 
 export const interactionCreateController = async (interaction: Interaction) => {
   console.log("Interaction...")
+
+  try {
+    await DiscordMetadataService.getInstance().upsertMemberDiscordProfile({
+      discordId: interaction.user.id,
+      username: interaction.user.username,
+      globalName: interaction.user.globalName,
+      avatar: interaction.user.avatar,
+      avatarUrl: interaction.user.displayAvatarURL({ size: 128 }) ?? null,
+    });
+  } catch (error) {
+    console.error("Failed to sync interaction Discord profile metadata", error);
+  }
 
   if (interaction.inGuild()) {
     const response = await dataBaseHandler.isMemberExists(interaction.user.id, true, interaction.guildId, true, interaction);

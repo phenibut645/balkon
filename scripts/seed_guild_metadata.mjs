@@ -24,7 +24,8 @@ if (!host || !user || !database || Number.isNaN(port)) {
   process.exit(1);
 }
 
-// Add local development overrides here when needed.
+// Fallback-only helper for local development.
+// Real guild names and icons should be synced by bot runtime on clientReady.
 const LOCAL_GUILD_NAMES = {
   // "1254753632533086270": "VNMCR",
 };
@@ -53,7 +54,7 @@ try {
 
     const displayName = mapped && String(mapped).trim().length > 0
       ? String(mapped).trim()
-      : `Guild ${guildId}`;
+      : guildId;
 
     await connection.query(
       "UPDATE guilds SET display_name = ? WHERE ds_guild_id = ?",

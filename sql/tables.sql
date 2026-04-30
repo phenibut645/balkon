@@ -34,6 +34,11 @@ CREATE TABLE guild_roles (
 CREATE TABLE members (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ds_member_id VARCHAR(255) NOT NULL UNIQUE,
+    discord_username VARCHAR(255) NULL,
+    discord_global_name VARCHAR(255) NULL,
+    discord_avatar VARCHAR(255) NULL,
+    discord_avatar_url TEXT NULL,
+    discord_profile_updated_at TIMESTAMP NULL,
     balance int DEFAULT 0,
     ldm_balance int DEFAULT 0,
     home_guild_id VARCHAR(32) NULL,

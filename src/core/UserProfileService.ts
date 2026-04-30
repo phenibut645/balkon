@@ -28,6 +28,10 @@ interface ProfileRow extends RowDataPacket {
   username: string | null;
   global_name: string | null;
   avatar: string | null;
+  member_username: string | null;
+  member_global_name: string | null;
+  member_avatar: string | null;
+  member_avatar_url: string | null;
   balance: number | string | null;
   ldm_balance: number | string | null;
   home_guild_id: string | null;
@@ -59,12 +63,17 @@ function mapProfileRow(row: ProfileRow): UserPublicProfile {
   const discordId = String(row.discord_id);
   const homeGuildId = row.home_guild_id ? String(row.home_guild_id) : null;
   const homeGuildDisplayName = row.home_guild_display_name ? String(row.home_guild_display_name) : null;
+  const username = row.username ?? row.member_username ?? null;
+  const globalName = row.global_name ?? row.member_global_name ?? null;
+  const avatarUrl = buildDiscordAvatarUrl(discordId, row.avatar ?? null)
+    || (row.member_avatar_url ? String(row.member_avatar_url) : null)
+    || buildDiscordAvatarUrl(discordId, row.member_avatar ?? null);
 
   return {
     discordId,
-    username: row.username ?? null,
-    globalName: row.global_name ?? null,
-    avatarUrl: buildDiscordAvatarUrl(discordId, row.avatar ?? null),
+    username,
+    globalName,
+    avatarUrl,
     balance: toNumber(row.balance),
     ldmBalance: toNumber(row.ldm_balance),
     homeGuildId,
@@ -111,6 +120,10 @@ export class UserProfileService {
           s.username AS username,
           s.global_name AS global_name,
           s.avatar AS avatar,
+          m.discord_username AS member_username,
+          m.discord_global_name AS member_global_name,
+          m.discord_avatar AS member_avatar,
+          m.discord_avatar_url AS member_avatar_url,
           m.balance AS balance,
           m.ldm_balance AS ldm_balance,
           m.home_guild_id AS home_guild_id,
@@ -209,6 +222,10 @@ export class UserProfileService {
           s.username AS username,
           s.global_name AS global_name,
           s.avatar AS avatar,
+          m.discord_username AS member_username,
+          m.discord_global_name AS member_global_name,
+          m.discord_avatar AS member_avatar,
+          m.discord_avatar_url AS member_avatar_url,
           m.balance AS balance,
           m.ldm_balance AS ldm_balance,
           m.home_guild_id AS home_guild_id,
