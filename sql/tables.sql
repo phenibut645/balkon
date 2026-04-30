@@ -5,6 +5,8 @@ USE test_balkon;
 CREATE TABLE guilds (
     id INT AUTO_INCREMENT PRIMARY KEY,
     ds_guild_id VARCHAR(255) UNIQUE,
+    display_name VARCHAR(255) NULL,
+    icon_url TEXT NULL,
     earning_multiply FLOAT DEFAULT 1.0
 );
 

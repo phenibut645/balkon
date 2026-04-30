@@ -31,11 +31,14 @@ interface ProfileRow extends RowDataPacket {
   balance: number | string | null;
   ldm_balance: number | string | null;
   home_guild_id: string | null;
+  home_guild_display_name: string | null;
   public_description: string | null;
 }
 
 interface GuildOptionRow extends RowDataPacket {
   guild_id: string;
+  display_name: string | null;
+  icon_url: string | null;
 }
 
 function toNumber(value: unknown): number {
@@ -55,6 +58,7 @@ function buildDiscordAvatarUrl(discordId: string, avatar: string | null): string
 function mapProfileRow(row: ProfileRow): UserPublicProfile {
   const discordId = String(row.discord_id);
   const homeGuildId = row.home_guild_id ? String(row.home_guild_id) : null;
+  const homeGuildDisplayName = row.home_guild_display_name ? String(row.home_guild_display_name) : null;
 
   return {
     discordId,
@@ -64,7 +68,7 @@ function mapProfileRow(row: ProfileRow): UserPublicProfile {
     balance: toNumber(row.balance),
     ldmBalance: toNumber(row.ldm_balance),
     homeGuildId,
-    homeGuildName: homeGuildId,
+    homeGuildName: homeGuildDisplayName || homeGuildId,
     publicDescription: row.public_description ?? null,
   };
 }
@@ -110,8 +114,10 @@ export class UserProfileService {
           m.balance AS balance,
           m.ldm_balance AS ldm_balance,
           m.home_guild_id AS home_guild_id,
+           hg.display_name AS home_guild_display_name,
           m.public_description AS public_description
        FROM members AS m
+         LEFT JOIN guilds AS hg ON hg.ds_guild_id = m.home_guild_id
        LEFT JOIN (
          SELECT s1.discord_id, s1.username, s1.global_name, s1.avatar
          FROM api_sessions AS s1
@@ -135,7 +141,7 @@ export class UserProfileService {
 
   async listAvailableHomeGuilds(discordId: string): Promise<AvailableGuild[]> {
     const [memberGuildRows] = await pool.query<GuildOptionRow[]>(
-      `SELECT DISTINCT g.ds_guild_id AS guild_id
+      `SELECT DISTINCT g.ds_guild_id AS guild_id, g.display_name AS display_name, g.icon_url AS icon_url
        FROM guild_members AS gm
        INNER JOIN members AS m ON m.id = gm.member_id
        INNER JOIN guilds AS g ON g.id = gm.guild_id
@@ -147,15 +153,15 @@ export class UserProfileService {
     const sourceRows = memberGuildRows.length
       ? memberGuildRows
       : (await pool.query<GuildOptionRow[]>(
-        `SELECT g.ds_guild_id AS guild_id
+        `SELECT g.ds_guild_id AS guild_id, g.display_name AS display_name, g.icon_url AS icon_url
          FROM guilds AS g
          ORDER BY g.ds_guild_id ASC`
       ))[0];
 
     return sourceRows.map(row => ({
       guildId: String(row.guild_id),
-      name: String(row.guild_id),
-      iconUrl: null,
+      name: row.display_name ? String(row.display_name) : String(row.guild_id),
+      iconUrl: row.icon_url ? String(row.icon_url) : null,
     }));
   }
 
@@ -206,8 +212,10 @@ export class UserProfileService {
           m.balance AS balance,
           m.ldm_balance AS ldm_balance,
           m.home_guild_id AS home_guild_id,
+           hg.display_name AS home_guild_display_name,
           m.public_description AS public_description
        FROM members AS m
+         LEFT JOIN guilds AS hg ON hg.ds_guild_id = m.home_guild_id
        LEFT JOIN (
          SELECT s1.discord_id, s1.username, s1.global_name, s1.avatar
          FROM api_sessions AS s1

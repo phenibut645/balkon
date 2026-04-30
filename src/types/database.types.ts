@@ -9,6 +9,8 @@ export interface DefaultDBTable {
 
 export interface GuildsDB extends DefaultDBTable {
     ds_guild_id: string,
+    display_name?: string | null,
+    icon_url?: string | null,
     earning_multiply: number
 }
 

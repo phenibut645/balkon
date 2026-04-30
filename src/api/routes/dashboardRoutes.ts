@@ -232,7 +232,8 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
         ok: true,
         profile,
       };
-    } catch {
+    } catch (error) {
+      console.error("[profile/me PATCH] Failed to update profile", error);
       return {
         ok: false,
         error: "PROFILE_UPDATE_FAILED",
