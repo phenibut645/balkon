@@ -4,6 +4,7 @@ import { EconomyService } from "../../core/EconomyService.js";
 import { NotificationService, NotificationSeverity } from "../../core/NotificationService.js";
 import { ShopObsService } from "../../core/ShopObsService.js";
 import { ObsMediaActionService, ObsMediaActionStatus } from "../../core/ObsMediaActionService.js";
+import { OverviewService } from "../../core/OverviewService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -183,6 +184,23 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       avatarUrl: request.authUser!.avatarUrl ?? null,
     },
   }));
+
+  app.get("/overview/me", { preHandler: requireAuth }, async request => {
+    try {
+      const data = await OverviewService.getInstance().getCurrentUserOverview(request.authUser!.discordId);
+
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "OVERVIEW_LOAD_FAILED",
+        "Failed to load overview.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
 
   app.get("/inventory", { preHandler: requireAuth }, async request => {
     const response = await ItemService.getInstance().getInventory(request.authUser!.discordId);
