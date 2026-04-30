@@ -45,6 +45,8 @@ export interface MembersDB extends DefaultDBTable {
     ds_member_id: string,
     balance: number,
     ldm_balance?: number,
+    home_guild_id?: string | null,
+    public_description?: string | null,
     locale?: string | null
 }
 

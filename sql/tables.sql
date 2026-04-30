@@ -34,8 +34,13 @@ CREATE TABLE members (
     ds_member_id VARCHAR(255) NOT NULL UNIQUE,
     balance int DEFAULT 0,
     ldm_balance int DEFAULT 0,
+    home_guild_id VARCHAR(32) NULL,
+    public_description VARCHAR(500) NULL,
     locale VARCHAR(8) NOT NULL DEFAULT 'en'
 );
+
+CREATE INDEX idx_members_home_guild_id ON members(home_guild_id);
+CREATE INDEX idx_members_balance ON members(balance);
 
 CREATE TABLE member_roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
