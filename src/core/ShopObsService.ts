@@ -1,6 +1,6 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { obsRelayService } from "./ObsRelayService.js";
+import { obsAgentStatusService, ObsAgentStatusView } from "./ObsAgentStatusService.js";
 
 interface ObsShopStreamerRow extends RowDataPacket {
   streamer_id: number;
@@ -27,6 +27,11 @@ export type ObsShopStreamerView = {
   isPrimary: boolean;
   obsAgentId: string | null;
   obsAgentOnline: boolean;
+  obsAgentLastSeenAt: string | null;
+  obsAgentConnectedAt: string | null;
+  obsAgentDisconnectedAt: string | null;
+  obsAgentLastError: string | null;
+  obsAgentStatusSource: "database";
   streamingStatus: ObsStreamingStatus;
   lastSeenAt: string | null;
 };
@@ -43,6 +48,7 @@ export type ObsMediaProductView = {
 };
 
 const OBS_AGENT_BINDING_PREFIX = "obs_agent_binding:";
+const OBS_AGENT_STALE_MS = 120_000;
 
 export class ShopObsService {
   private static instance: ShopObsService;
@@ -72,9 +78,14 @@ export class ShopObsService {
     );
 
     const agentBindings = await this.loadStreamerAgentBindings(rows.map(row => row.streamer_id));
+    const agentIds = Array.from(new Set(Array.from(agentBindings.values())));
+    const statuses = await obsAgentStatusService.getStatuses(agentIds);
 
     return rows.map(row => {
       const agentId = agentBindings.get(row.streamer_id) ?? null;
+      const status = agentId ? statuses.get(agentId) ?? null : null;
+      const lastSeenAt = status?.lastSeenAt ?? null;
+
       return {
         streamerId: row.streamer_id,
         discordGuildId: row.ds_guild_id,
@@ -83,9 +94,14 @@ export class ShopObsService {
         twitchUrl: row.twitch_url,
         isPrimary: Boolean(row.is_primary),
         obsAgentId: agentId,
-        obsAgentOnline: Boolean(agentId && obsRelayService.isAgentConnected(agentId)),
+        obsAgentOnline: this.isAgentStatusOnline(status),
+        obsAgentLastSeenAt: lastSeenAt,
+        obsAgentConnectedAt: status?.connectedAt ?? null,
+        obsAgentDisconnectedAt: status?.disconnectedAt ?? null,
+        obsAgentLastError: status?.lastError ?? null,
+        obsAgentStatusSource: "database",
         streamingStatus: "unknown",
-        lastSeenAt: null,
+        lastSeenAt,
       };
     });
   }
@@ -127,6 +143,8 @@ export class ShopObsService {
       return bindings;
     }
 
+    const streamerIdsSet = new Set(streamerIds);
+
     const [rows] = await pool.query<BotSettingRow[]>(
       `SELECT setting_key, setting_value FROM bot_settings WHERE setting_key LIKE ?`,
       [`${OBS_AGENT_BINDING_PREFIX}%`]
@@ -136,7 +154,7 @@ export class ShopObsService {
       const settingKey = String(row.setting_key ?? "");
       const idPart = settingKey.replace(OBS_AGENT_BINDING_PREFIX, "");
       const streamerId = Number(idPart);
-      if (!Number.isInteger(streamerId) || !streamerIds.includes(streamerId) || !row.setting_value) {
+      if (!Number.isInteger(streamerId) || !streamerIdsSet.has(streamerId) || !row.setting_value) {
         continue;
       }
 
@@ -154,5 +172,18 @@ export class ShopObsService {
     }
 
     return bindings;
+  }
+
+  private isAgentStatusOnline(status: ObsAgentStatusView | null): boolean {
+    if (!status || !status.online || !status.lastSeenAt) {
+      return false;
+    }
+
+    const lastSeenAtMs = Date.parse(status.lastSeenAt);
+    if (Number.isNaN(lastSeenAtMs)) {
+      return false;
+    }
+
+    return Date.now() - lastSeenAtMs <= OBS_AGENT_STALE_MS;
   }
 }

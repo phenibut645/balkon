@@ -3,6 +3,7 @@ import { RowDataPacket } from "mysql2";
 import { WebSocket, WebSocketServer } from "ws";
 import { obsAgentRelayPort, obsAgentRequestTimeoutMs } from "../config.js";
 import pool from "../db.js";
+import { obsAgentStatusService } from "./ObsAgentStatusService.js";
 import { ObsRelayCommandMessage, ObsRelayCommandName, ObsRelayGetStatusResult, ObsRelayIncomingMessage, ObsRelayOutgoingMessage, ObsRelayPongMessage } from "../types/obs-agent.types.js";
 
 interface AgentCredentialRow extends RowDataPacket {
@@ -57,6 +58,9 @@ export class ObsRelayService {
                     }
 
                     this.registerAgentSocket(parsedMessage.agentId, socket);
+                    void obsAgentStatusService.markConnected(parsedMessage.agentId).catch(error => {
+                        console.error("Failed to persist OBS agent connected status", error);
+                    });
                     socket.send(JSON.stringify({ type: "hello_ack", agentId: parsedMessage.agentId } satisfies ObsRelayOutgoingMessage));
 
                     socket.on("message", message => {
@@ -64,12 +68,23 @@ export class ObsRelayService {
                     });
 
                     socket.on("close", () => {
-                        this.unregisterAgentSocket(socket);
+                        const agentId = this.unregisterAgentSocket(socket);
+                        if (agentId) {
+                            void obsAgentStatusService.markDisconnected(agentId).catch(error => {
+                                console.error("Failed to persist OBS agent disconnected status", error);
+                            });
+                        }
                     });
 
                     socket.on("error", error => {
                         console.error("OBS agent socket error", error);
-                        this.unregisterAgentSocket(socket);
+                        const agentId = this.unregisterAgentSocket(socket);
+                        if (agentId) {
+                            const errorMessage = error instanceof Error ? error.message : String(error);
+                            void obsAgentStatusService.markDisconnected(agentId, errorMessage).catch(statusError => {
+                                console.error("Failed to persist OBS agent socket error status", statusError);
+                            });
+                        }
                     });
                 } catch (error) {
                     socket.send(JSON.stringify({ type: "error", error: error instanceof Error ? error.message : "Invalid hello message." } satisfies ObsRelayOutgoingMessage));
@@ -144,6 +159,12 @@ export class ObsRelayService {
                 };
 
                 socket.send(JSON.stringify(pong));
+                const agentId = this.socketAgents.get(socket);
+                if (agentId) {
+                    void obsAgentStatusService.markSeen(agentId).catch(error => {
+                        console.error("Failed to persist OBS agent heartbeat", error);
+                    });
+                }
                 return;
             }
 
@@ -194,24 +215,29 @@ export class ObsRelayService {
 
     private registerAgentSocket(agentId: string, socket: WebSocket) {
         const previousSocket = this.agentSockets.get(agentId);
+        this.agentSockets.set(agentId, socket);
+        this.socketAgents.set(socket, agentId);
+
         if (previousSocket && previousSocket !== socket) {
             previousSocket.close();
         }
-
-        this.agentSockets.set(agentId, socket);
-        this.socketAgents.set(socket, agentId);
     }
 
-    private unregisterAgentSocket(socket: WebSocket) {
+    private unregisterAgentSocket(socket: WebSocket): string | null {
         const agentId = this.socketAgents.get(socket);
         if (!agentId) {
-            return;
+            return null;
         }
 
         const currentSocket = this.agentSockets.get(agentId);
         if (currentSocket === socket) {
             this.agentSockets.delete(agentId);
+            this.socketAgents.delete(socket);
+            return agentId;
         }
+
+        this.socketAgents.delete(socket);
+        return null;
     }
 
     private getAgentCredentialKey(agentId: string) {
