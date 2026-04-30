@@ -1,6 +1,6 @@
 {
   "name": "balkon-bot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "cross-env NODE_ENV=dev tsx watch src/bot.ts",
