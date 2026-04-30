@@ -468,11 +468,64 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
-  app.post("/shop/obs/streamers/:streamerId/media/:productId/purchase", { preHandler: requireAuth }, async () => ({
-    ok: false,
-    error: "OBS_MEDIA_PURCHASE_NOT_AVAILABLE",
-    message: "OBS media purchases are not available yet.",
-  }));
+  app.post("/shop/obs/streamers/:streamerId/media/:productId/purchase", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    const productId = parseOptionalText((request.params as { productId?: string }).productId);
+    const body = (request.body ?? {}) as { amount?: unknown };
+    const parsedAmount = body.amount === undefined ? 1 : parsePositiveInteger(body.amount);
+
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_MEDIA_PURCHASE_FAILED",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    if (!productId) {
+      return {
+        ok: false,
+        error: "OBS_MEDIA_PRODUCT_NOT_FOUND",
+        message: "productId is required.",
+      };
+    }
+
+    if (parsedAmount !== 1) {
+      return {
+        ok: false,
+        error: "OBS_MEDIA_PURCHASE_FAILED",
+        message: "Only amount=1 is supported for OBS media purchases.",
+      };
+    }
+
+    try {
+      const data = await shopObsService.purchaseObsMedia({
+        discordId: request.authUser!.discordId,
+        streamerId,
+        productId,
+        amount: 1,
+      });
+
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      if (shopObsService.isPurchaseError(error)) {
+        return {
+          ok: false,
+          error: error.code,
+          message: error.message,
+        };
+      }
+
+      return serviceErrorResponse(
+        "OBS_MEDIA_PURCHASE_FAILED",
+        "Failed to complete OBS media purchase.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
 
   app.get("/craft/recipes", { preHandler: requireAuth }, async () => {
     const response = await ItemService.getInstance().listCraftRecipes();

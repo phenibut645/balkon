@@ -1,6 +1,9 @@
-import { RowDataPacket } from "mysql2";
+import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { obsAgentStatusService, ObsAgentStatusView } from "./ObsAgentStatusService.js";
+import { getBotCommandQueue } from "./BotCommandQueue.js";
+import { NotificationService } from "./NotificationService.js";
+import { ObsRelayMediaShowPayload } from "../types/obs-agent.types.js";
 
 interface ObsShopStreamerRow extends RowDataPacket {
   streamer_id: number;
@@ -14,6 +17,21 @@ interface ObsShopStreamerRow extends RowDataPacket {
 interface BotSettingRow extends RowDataPacket {
   setting_key: string;
   setting_value: string | null;
+}
+
+interface MemberBalanceRow extends RowDataPacket {
+  id: number;
+  balance: number;
+  ds_member_id: string;
+  discord_username: string | null;
+  discord_global_name: string | null;
+}
+
+interface BotCommandStatusRow extends RowDataPacket {
+  id: number;
+  status: "pending" | "processing" | "completed" | "failed";
+  result_json: string | null;
+  error_message: string | null;
 }
 
 export type ObsStreamingStatus = "live" | "offline" | "unknown";
@@ -47,8 +65,29 @@ export type ObsMediaProductView = {
   enabled: boolean;
 };
 
+type ObsMediaProductConfig = ObsMediaProductView & {
+  mediaUrl: string;
+};
+
+export type ObsMediaPurchaseResult = {
+  streamerId: number;
+  productId: string;
+  priceOdm: number;
+  balanceAfter: number;
+  commandId?: string;
+};
+
 const OBS_AGENT_BINDING_PREFIX = "obs_agent_binding:";
 const OBS_AGENT_STALE_MS = 120_000;
+const OBS_MEDIA_COMMAND_TIMEOUT_MS = 20_000;
+const OBS_MEDIA_COMMAND_POLL_MS = 400;
+
+class ShopObsServiceError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "ShopObsServiceError";
+  }
+}
 
 export class ShopObsService {
   private static instance: ShopObsService;
@@ -113,6 +152,117 @@ export class ShopObsService {
   }
 
   getObsMediaProducts(): ObsMediaProductView[] {
+    return this.getObsMediaProductCatalog().map(product => ({
+      id: product.id,
+      kind: product.kind,
+      title: product.title,
+      description: product.description,
+      priceOdm: product.priceOdm,
+      durationSeconds: product.durationSeconds,
+      previewUrl: product.previewUrl,
+      enabled: product.enabled,
+    }));
+  }
+
+  async purchaseObsMedia(input: {
+    discordId: string;
+    streamerId: number;
+    productId: string;
+    amount?: number;
+  }): Promise<ObsMediaPurchaseResult> {
+    const amount = input.amount ?? 1;
+    if (amount !== 1) {
+      throw new ShopObsServiceError("OBS_MEDIA_PURCHASE_FAILED", "Only amount=1 is supported for OBS media purchases.");
+    }
+
+    const product = this.findObsMediaProduct(input.productId);
+    if (!product) {
+      throw new ShopObsServiceError("OBS_MEDIA_PRODUCT_NOT_FOUND", "OBS media product was not found.");
+    }
+
+    if (!product.enabled) {
+      throw new ShopObsServiceError("OBS_MEDIA_PRODUCT_DISABLED", "OBS media product is disabled.");
+    }
+
+    const streamer = await this.getObsShopStreamerDetails(input.streamerId);
+    if (!streamer) {
+      throw new ShopObsServiceError("OBS_STREAMER_NOT_FOUND", "Streamer was not found.");
+    }
+
+    if (!streamer.obsAgentId) {
+      throw new ShopObsServiceError("OBS_AGENT_NOT_CONFIGURED", "Streamer OBS Agent is not configured.");
+    }
+
+    if (!streamer.obsAgentOnline) {
+      throw new ShopObsServiceError("OBS_AGENT_OFFLINE", "Streamer OBS Agent is offline.");
+    }
+
+    const buyer = await this.resolveMemberBalance(input.discordId);
+    const charged = await this.tryChargeMember(buyer.id, product.priceOdm);
+    if (!charged) {
+      throw new ShopObsServiceError("NOT_ENOUGH_ODM", "Not enough ODM.");
+    }
+
+    const queue = getBotCommandQueue();
+    const mediaPayload: ObsRelayMediaShowPayload = {
+      kind: product.kind,
+      url: product.mediaUrl,
+      durationMs: product.durationSeconds * 1000,
+      title: product.title,
+    };
+
+    let commandId: number | null = null;
+
+    try {
+      const queued = await queue.enqueue({
+        type: "OBS_MEDIA_SHOW",
+        guildId: streamer.discordGuildId,
+        requestedByDiscordId: input.discordId,
+        payload: {
+          agentId: streamer.obsAgentId,
+          streamerId: streamer.streamerId,
+          streamerNickname: streamer.nickname,
+          productId: product.id,
+          media: mediaPayload,
+          source: "shop_obs_media_purchase",
+        },
+      });
+
+      commandId = queued.commandId;
+      await this.waitForBotCommandCompletion(commandId, OBS_MEDIA_COMMAND_TIMEOUT_MS);
+    } catch (error) {
+      await this.refundMember(buyer.id, product.priceOdm);
+
+      if (error instanceof ShopObsServiceError) {
+        throw error;
+      }
+
+      const message = error instanceof Error ? error.message : "OBS media command failed.";
+      throw new ShopObsServiceError("OBS_MEDIA_COMMAND_FAILED", message);
+    }
+
+    const balanceAfter = await this.getMemberBalanceById(buyer.id);
+
+    void this.createBuyerSuccessNotification({
+      memberId: buyer.id,
+      streamerNickname: streamer.nickname,
+      productTitle: product.title,
+    });
+
+    return {
+      streamerId: streamer.streamerId,
+      productId: product.id,
+      priceOdm: product.priceOdm,
+      balanceAfter,
+      commandId: commandId === null ? undefined : String(commandId),
+    };
+  }
+
+  isPurchaseError(error: unknown): error is { code: string; message: string } {
+    return error instanceof ShopObsServiceError;
+  }
+
+  private getObsMediaProductCatalog(): ObsMediaProductConfig[] {
     return [
       {
         id: "image_5s_default",
@@ -121,20 +271,31 @@ export class ShopObsService {
         description: "Display a static image in OBS for 5 seconds.",
         priceOdm: 50,
         durationSeconds: 5,
+        mediaUrl: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=1280&q=80&auto=format&fit=crop",
         previewUrl: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=640&q=80&auto=format&fit=crop",
-        enabled: false,
+        enabled: true,
       },
       {
-        id: "gif_5s_cat",
+        id: "gif_5s_default",
         kind: "gif",
         title: "Show GIF",
         description: "Display an animated GIF in OBS for 5 seconds.",
         priceOdm: 100,
         durationSeconds: 5,
+        mediaUrl: "https://media.tenor.com/SxzG9vFWtTcAAAAM/zxc-cat.gif",
         previewUrl: "https://media.tenor.com/SxzG9vFWtTcAAAAM/zxc-cat.gif",
-        enabled: false,
+        enabled: true,
       },
     ];
+  }
+
+  private findObsMediaProduct(productId: string): ObsMediaProductConfig | null {
+    const normalizedProductId = productId.trim();
+    if (!normalizedProductId.length) {
+      return null;
+    }
+
+    return this.getObsMediaProductCatalog().find(product => product.id === normalizedProductId) ?? null;
   }
 
   private async loadStreamerAgentBindings(streamerIds: number[]): Promise<Map<number, string>> {
@@ -185,5 +346,124 @@ export class ShopObsService {
     }
 
     return Date.now() - lastSeenAtMs <= OBS_AGENT_STALE_MS;
+  }
+
+  private async resolveMemberBalance(discordId: string): Promise<MemberBalanceRow> {
+    const normalizedDiscordId = discordId.trim();
+    if (!normalizedDiscordId.length) {
+      throw new ShopObsServiceError("OBS_MEDIA_PURCHASE_FAILED", "Authenticated user is missing discord id.");
+    }
+
+    const [rows] = await pool.query<MemberBalanceRow[]>(
+      `SELECT id, balance, ds_member_id, discord_username, discord_global_name
+       FROM members
+       WHERE ds_member_id = ?
+       LIMIT 1`,
+      [normalizedDiscordId],
+    );
+
+    const row = rows[0];
+    if (row) {
+      return row;
+    }
+
+    await pool.query(
+      `INSERT INTO members (ds_member_id) VALUES (?)
+       ON DUPLICATE KEY UPDATE ds_member_id = VALUES(ds_member_id)`,
+      [normalizedDiscordId],
+    );
+
+    const [retryRows] = await pool.query<MemberBalanceRow[]>(
+      `SELECT id, balance, ds_member_id, discord_username, discord_global_name
+       FROM members
+       WHERE ds_member_id = ?
+       LIMIT 1`,
+      [normalizedDiscordId],
+    );
+
+    if (!retryRows[0]) {
+      throw new ShopObsServiceError("OBS_MEDIA_PURCHASE_FAILED", "Failed to resolve buyer member.");
+    }
+
+    return retryRows[0];
+  }
+
+  private async tryChargeMember(memberId: number, priceOdm: number): Promise<boolean> {
+    const [result] = await pool.query<ResultSetHeader>(
+      `UPDATE members
+       SET balance = balance - ?
+       WHERE id = ? AND balance >= ?`,
+      [priceOdm, memberId, priceOdm],
+    );
+
+    return result.affectedRows === 1;
+  }
+
+  private async refundMember(memberId: number, priceOdm: number): Promise<void> {
+    await pool.query(
+      `UPDATE members SET balance = balance + ? WHERE id = ?`,
+      [priceOdm, memberId],
+    );
+  }
+
+  private async getMemberBalanceById(memberId: number): Promise<number> {
+    const [rows] = await pool.query<Array<RowDataPacket & { balance: number }>>(
+      `SELECT balance FROM members WHERE id = ? LIMIT 1`,
+      [memberId],
+    );
+
+    return Number(rows[0]?.balance ?? 0);
+  }
+
+  private async waitForBotCommandCompletion(commandId: number, timeoutMs: number): Promise<void> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      const [rows] = await pool.query<BotCommandStatusRow[]>(
+        `SELECT id, status, result_json, error_message
+         FROM bot_commands
+         WHERE id = ?
+         LIMIT 1`,
+        [commandId],
+      );
+
+      const row = rows[0];
+      if (!row) {
+        throw new ShopObsServiceError("OBS_MEDIA_COMMAND_FAILED", "OBS media command record disappeared.");
+      }
+
+      if (row.status === "completed") {
+        return;
+      }
+
+      if (row.status === "failed") {
+        throw new ShopObsServiceError("OBS_MEDIA_COMMAND_FAILED", row.error_message || "OBS media command failed.");
+      }
+
+      await new Promise(resolve => setTimeout(resolve, OBS_MEDIA_COMMAND_POLL_MS));
+    }
+
+    throw new ShopObsServiceError("OBS_MEDIA_COMMAND_FAILED", "OBS media command timed out.");
+  }
+
+  private async createBuyerSuccessNotification(input: {
+    memberId: number;
+    streamerNickname: string;
+    productTitle: string;
+  }): Promise<void> {
+    try {
+      await NotificationService.getInstance().createForMember(input.memberId, {
+        type: "obs_media",
+        severity: "success",
+        title: "OBS effect sent",
+        body: `Your media effect '${input.productTitle}' was sent to ${input.streamerNickname}.`,
+        metadataJson: {
+          streamerNickname: input.streamerNickname,
+          productTitle: input.productTitle,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to create OBS media purchase notification", error);
+    }
   }
 }

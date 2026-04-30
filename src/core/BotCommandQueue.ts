@@ -8,7 +8,8 @@ export type BotCommandType =
   | "UNBAN_MEMBER"
   | "ADD_ROLE"
   | "REMOVE_ROLE"
-  | "SEND_CHANNEL_MESSAGE";
+  | "SEND_CHANNEL_MESSAGE"
+  | "OBS_MEDIA_SHOW";
 
 export type BotCommandStatus = "pending" | "processing" | "completed" | "failed";
 

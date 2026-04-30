@@ -1,6 +1,8 @@
 import { Client, PermissionsBitField } from "discord.js";
 import { BotCommandRecord, getBotCommandQueue } from "./BotCommandQueue.js";
 import { isBotAdmin } from "./BotAdmin.js";
+import { obsRelayService } from "./ObsRelayService.js";
+import { ObsRelayMediaShowPayload } from "../types/obs-agent.types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const DEFAULT_KICK_REASON = "Requested via API command queue";
@@ -63,6 +65,9 @@ export class BotCommandWorker {
         case "KICK_MEMBER":
           await this.handleKickMember(command);
           return;
+        case "OBS_MEDIA_SHOW":
+          await this.handleObsMediaShow(command);
+          return;
         case "BAN_MEMBER":
         case "UNBAN_MEMBER":
         case "ADD_ROLE":
@@ -117,6 +122,28 @@ export class BotCommandWorker {
     console.log(`[BotCommandWorker] Completed KICK_MEMBER command ${command.id}`);
   }
 
+  private async handleObsMediaShow(command: BotCommandRecord): Promise<void> {
+    const payload = this.validateObsMediaShowPayload(command.payload);
+
+    await obsRelayService.sendCommand<unknown>(payload.agentId, "obs.media.show", {
+      kind: payload.media.kind,
+      url: payload.media.url,
+      durationMs: payload.media.durationMs,
+      title: payload.media.title,
+    });
+
+    await this.queue.markCompleted(command.id, {
+      action: "OBS_MEDIA_SHOW",
+      agentId: payload.agentId,
+      streamerId: payload.streamerId,
+      streamerNickname: payload.streamerNickname,
+      productId: payload.productId,
+      processedAt: new Date().toISOString(),
+    });
+
+    console.log(`[BotCommandWorker] Completed OBS_MEDIA_SHOW command ${command.id}`);
+  }
+
   private validateKickPayload(payload: Record<string, unknown>): { memberId: string; reason: string } {
     const memberId = typeof payload.memberId === "string" ? payload.memberId.trim() : "";
     if (!memberId) {
@@ -137,6 +164,76 @@ export class BotCommandWorker {
     }
 
     return { memberId, reason };
+  }
+
+  private validateObsMediaShowPayload(payload: Record<string, unknown>): {
+    agentId: string;
+    streamerId: number;
+    streamerNickname: string;
+    productId: string;
+    media: ObsRelayMediaShowPayload;
+  } {
+    const agentId = typeof payload.agentId === "string" ? payload.agentId.trim() : "";
+    const streamerNickname = typeof payload.streamerNickname === "string" ? payload.streamerNickname.trim() : "";
+    const productId = typeof payload.productId === "string" ? payload.productId.trim() : "";
+    const streamerId = typeof payload.streamerId === "number" ? payload.streamerId : Number(payload.streamerId);
+    const mediaPayload = payload.media;
+
+    if (!agentId) {
+      throw new Error("Invalid payload: agentId must be a non-empty string");
+    }
+
+    if (!Number.isInteger(streamerId) || streamerId <= 0) {
+      throw new Error("Invalid payload: streamerId must be a positive integer");
+    }
+
+    if (!streamerNickname) {
+      throw new Error("Invalid payload: streamerNickname must be a non-empty string");
+    }
+
+    if (!productId) {
+      throw new Error("Invalid payload: productId must be a non-empty string");
+    }
+
+    if (!mediaPayload || typeof mediaPayload !== "object" || Array.isArray(mediaPayload)) {
+      throw new Error("Invalid payload: media must be an object");
+    }
+
+    const mediaRecord = mediaPayload as Record<string, unknown>;
+
+    const kind = mediaRecord.kind;
+    const url = mediaRecord.url;
+    const durationMs = mediaRecord.durationMs;
+    const title = mediaRecord.title;
+
+    if (kind !== "image" && kind !== "gif") {
+      throw new Error("Invalid payload: media.kind must be image or gif");
+    }
+
+    if (typeof url !== "string" || !url.trim()) {
+      throw new Error("Invalid payload: media.url must be a non-empty string");
+    }
+
+    if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 1000 || durationMs > 15000) {
+      throw new Error("Invalid payload: media.durationMs must be between 1000 and 15000");
+    }
+
+    if (typeof title !== "string" || !title.trim()) {
+      throw new Error("Invalid payload: media.title must be a non-empty string");
+    }
+
+    return {
+      agentId,
+      streamerId,
+      streamerNickname,
+      productId,
+      media: {
+        kind,
+        url: url.trim(),
+        durationMs,
+        title: title.trim(),
+      },
+    };
   }
 
   private async isRequesterAllowed(guildId: string, requesterDiscordId: string): Promise<boolean> {

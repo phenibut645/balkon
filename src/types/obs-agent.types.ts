@@ -7,7 +7,8 @@ export type ObsRelayCommandName =
     | "obs.switchScene"
     | "obs.setSourceVisibility"
     | "obs.setTextInputText"
-    | "obs.triggerMediaInputAction";
+    | "obs.triggerMediaInputAction"
+    | "obs.media.show";
 
 export interface ObsRelayHelloMessage {
     type: "hello";
@@ -88,4 +89,15 @@ export interface ObsRelaySetTextInputPayload {
 export interface ObsRelayMediaActionPayload {
     inputName: string;
     mediaAction: ObsMediaAction;
+}
+
+export interface ObsRelayMediaShowPayload {
+    kind: "image" | "gif";
+    url: string;
+    durationMs: number;
+    title: string;
+}
+
+export interface ObsRelayMediaShowResult {
+    ok: true;
 }
