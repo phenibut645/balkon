@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { ItemService } from "../../core/ItemService.js";
+import { EconomyService } from "../../core/EconomyService.js";
 import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireBotContributor } from "../middleware/requireBotContributor.js";
@@ -94,6 +95,27 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       ok: true,
       listings: response.data,
     };
+  });
+
+  app.get("/market/capitalization", { preHandler: requireAuth }, async request => {
+    try {
+      const rawDays = (request.query as { days?: unknown }).days;
+      const parsedDays = parsePositiveInteger(rawDays);
+      const days = parsedDays && parsedDays >= 2 && parsedDays <= 60 ? parsedDays : 15;
+
+      const capitalization = await EconomyService.getInstance().getMarketCapitalization(days);
+
+      return {
+        ok: true,
+        capitalization,
+      };
+    } catch {
+      return {
+        ok: false,
+        error: "MARKET_CAPITALIZATION_LOAD_FAILED",
+        message: "Failed to load market capitalization.",
+      };
+    }
   });
 
   app.get("/botshop", { preHandler: requireAuth }, async () => {
