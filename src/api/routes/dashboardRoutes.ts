@@ -3,6 +3,7 @@ import { ItemService } from "../../core/ItemService.js";
 import { EconomyService } from "../../core/EconomyService.js";
 import { NotificationService, NotificationSeverity } from "../../core/NotificationService.js";
 import { ShopObsService } from "../../core/ShopObsService.js";
+import { ObsMediaActionService, ObsMediaActionStatus } from "../../core/ObsMediaActionService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -58,6 +59,19 @@ function parseOptionalText(value: unknown): string | null | undefined {
 
   const normalized = value.trim();
   return normalized.length ? normalized : null;
+}
+
+function parseObsMediaActionStatus(value: unknown): ObsMediaActionStatus | null | undefined {
+  const normalized = parseOptionalText(value);
+  if (normalized === undefined || normalized === null) {
+    return normalized;
+  }
+
+  if (normalized === "pending" || normalized === "sent" || normalized === "failed" || normalized === "refunded") {
+    return normalized;
+  }
+
+  return null;
 }
 
 function parseOptionalHomeGuildId(value: unknown): string | null | undefined {
@@ -156,6 +170,7 @@ function serviceErrorResponse(defaultCode: string, defaultMessage: string, error
 export async function registerDashboardRoutes(app: FastifyInstance): Promise<void> {
   const notificationService = NotificationService.getInstance();
   const shopObsService = ShopObsService.getInstance();
+  const obsMediaActionService = ObsMediaActionService.getInstance();
 
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
@@ -433,6 +448,31 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     };
   });
 
+  app.get("/shop/obs/media/actions", { preHandler: requireAuth }, async request => {
+    const query = (request.query ?? {}) as { page?: unknown; pageSize?: unknown };
+    const page = parsePositiveInteger(query.page) ?? 1;
+    const requestedPageSize = parsePositiveInteger(query.pageSize) ?? 10;
+    const pageSize = Math.min(requestedPageSize, 50);
+
+    try {
+      const result = await obsMediaActionService.listForCurrentUser(request.authUser!.discordId, {
+        page,
+        pageSize,
+      });
+
+      return {
+        ok: true,
+        ...result,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "OBS_MEDIA_ACTIONS_LOAD_FAILED",
+        "Failed to load OBS media action history.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.get("/shop/obs/streamers", { preHandler: requireAuth }, async () => {
     try {
       const streamers = await shopObsService.listObsShopStreamers();
@@ -563,6 +603,41 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       ok: true,
       stats,
     };
+  });
+
+  app.get("/admin/obs/media/actions", { preHandler: [requireAuth, requireBotAdmin] }, async request => {
+    const query = (request.query ?? {}) as { page?: unknown; pageSize?: unknown; status?: unknown };
+    const page = parsePositiveInteger(query.page) ?? 1;
+    const requestedPageSize = parsePositiveInteger(query.pageSize) ?? 20;
+    const pageSize = Math.min(requestedPageSize, 50);
+    const status = parseObsMediaActionStatus(query.status);
+
+    if (status === null) {
+      return {
+        ok: false,
+        error: "INVALID_OBS_MEDIA_ACTION_STATUS",
+        message: "status must be pending, sent, failed, or refunded.",
+      };
+    }
+
+    try {
+      const result = await obsMediaActionService.listAdmin({
+        page,
+        pageSize,
+        status,
+      });
+
+      return {
+        ok: true,
+        ...result,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "ADMIN_OBS_MEDIA_ACTIONS_LOAD_FAILED",
+        "Failed to load OBS media action diagnostics.",
+        error instanceof Error ? error : undefined,
+      );
+    }
   });
 
   app.post("/admin/notifications/broadcast", { preHandler: [requireAuth, requireBotAdmin] }, async request => {

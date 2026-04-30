@@ -3,6 +3,7 @@ import pool from "../db.js";
 import { obsAgentStatusService, ObsAgentStatusView } from "./ObsAgentStatusService.js";
 import { getBotCommandQueue } from "./BotCommandQueue.js";
 import { NotificationService } from "./NotificationService.js";
+import { ObsMediaActionService } from "./ObsMediaActionService.js";
 import { ObsRelayMediaShowPayload } from "../types/obs-agent.types.js";
 
 interface ObsShopStreamerRow extends RowDataPacket {
@@ -203,6 +204,7 @@ export class ShopObsService {
       throw new ShopObsServiceError("NOT_ENOUGH_ODM", "Not enough ODM.");
     }
 
+    const obsMediaActionService = ObsMediaActionService.getInstance();
     const queue = getBotCommandQueue();
     const mediaPayload: ObsRelayMediaShowPayload = {
       kind: product.kind,
@@ -212,8 +214,21 @@ export class ShopObsService {
     };
 
     let commandId: number | null = null;
+    let actionId: number | null = null;
 
     try {
+      actionId = await obsMediaActionService.createPending({
+        buyerMemberId: buyer.id,
+        streamerId: streamer.streamerId,
+        agentId: streamer.obsAgentId,
+        productId: product.id,
+        productKind: product.kind,
+        productTitle: product.title,
+        mediaUrl: product.mediaUrl,
+        priceOdm: product.priceOdm,
+        durationMs: mediaPayload.durationMs,
+      });
+
       const queued = await queue.enqueue({
         type: "OBS_MEDIA_SHOW",
         guildId: streamer.discordGuildId,
@@ -231,14 +246,35 @@ export class ShopObsService {
       commandId = queued.commandId;
       await this.waitForBotCommandCompletion(commandId, OBS_MEDIA_COMMAND_TIMEOUT_MS);
     } catch (error) {
-      await this.refundMember(buyer.id, product.priceOdm);
-
+      const errorCode = error instanceof ShopObsServiceError ? error.code : "OBS_MEDIA_COMMAND_FAILED";
+      const message = error instanceof Error ? error.message : "OBS media command failed.";
       if (error instanceof ShopObsServiceError) {
+        await this.refundFailedMediaPurchase({
+          actionId,
+          buyerMemberId: buyer.id,
+          priceOdm: product.priceOdm,
+          errorCode,
+          errorMessage: message,
+        });
         throw error;
       }
 
-      const message = error instanceof Error ? error.message : "OBS media command failed.";
+      await this.refundFailedMediaPurchase({
+        actionId,
+        buyerMemberId: buyer.id,
+        priceOdm: product.priceOdm,
+        errorCode,
+        errorMessage: message,
+      });
       throw new ShopObsServiceError("OBS_MEDIA_COMMAND_FAILED", message);
+    }
+
+    if (actionId !== null) {
+      try {
+        await obsMediaActionService.markSent(actionId, commandId);
+      } catch (error) {
+        console.error("Failed to mark OBS media action as sent", error);
+      }
     }
 
     const balanceAfter = await this.getMemberBalanceById(buyer.id);
@@ -404,6 +440,47 @@ export class ShopObsService {
       `UPDATE members SET balance = balance + ? WHERE id = ?`,
       [priceOdm, memberId],
     );
+  }
+
+  private async refundFailedMediaPurchase(input: {
+    actionId: number | null;
+    buyerMemberId: number;
+    priceOdm: number;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<void> {
+    try {
+      await this.refundMember(input.buyerMemberId, input.priceOdm);
+    } catch (refundError) {
+      const refundMessage = refundError instanceof Error ? refundError.message : "Unknown refund failure.";
+      const combinedMessage = `${input.errorMessage} Refund failed: ${refundMessage}`;
+      if (input.actionId !== null) {
+        try {
+          await ObsMediaActionService.getInstance().markFailed(
+            input.actionId,
+            "OBS_MEDIA_REFUND_FAILED",
+            combinedMessage,
+          );
+        } catch (markError) {
+          console.error("Failed to mark OBS media action refund failure", markError);
+        }
+      }
+
+      throw new ShopObsServiceError("OBS_MEDIA_REFUND_FAILED", combinedMessage);
+    }
+
+    if (input.actionId !== null) {
+      try {
+        await ObsMediaActionService.getInstance().markRefunded(
+          input.actionId,
+          input.priceOdm,
+          input.errorCode,
+          input.errorMessage,
+        );
+      } catch (markError) {
+        console.error("Failed to mark OBS media action as refunded", markError);
+      }
+    }
   }
 
   private async getMemberBalanceById(memberId: number): Promise<number> {

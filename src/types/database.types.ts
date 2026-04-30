@@ -1,6 +1,6 @@
 import { RowDataPacket } from "mysql2"
 
-export type DataBaseTables = "guilds" | "logs_channels" | "guild_members" | "guild_member_statuses" | "general_settings" |"log_types" | "guild_roles" | "members" | "notifications" | "member_roles" | "twitch_notification_channels" | "member_command_permissions" | "commands" | "member_items" | "item_public_market" | "item_general_store" | "items" | "item_types" | "role_command_permissions" | "streamers" | "muted_users" | "banned_members" | "guild_item_roles" | "item_roles" | "item_treasures" | "mute_roles" | "item_rarities" | "treasure_contents" | "guild_channels" | "channel_tags_statuses" | "channel_tags" | "guild_role_statuses" | "role_statuses" | "command_access_levels" | "craft_recipes" | "craft_recipe_ingredients" | "bot_settings" | "guild_streamers" | "item_service_actions" | "bot_commands" | "api_sessions" | "admin_economy_adjustments";
+export type DataBaseTables = "guilds" | "logs_channels" | "guild_members" | "guild_member_statuses" | "general_settings" |"log_types" | "guild_roles" | "members" | "notifications" | "member_roles" | "twitch_notification_channels" | "member_command_permissions" | "commands" | "member_items" | "item_public_market" | "item_general_store" | "items" | "item_types" | "role_command_permissions" | "streamers" | "muted_users" | "banned_members" | "guild_item_roles" | "item_roles" | "item_treasures" | "mute_roles" | "item_rarities" | "treasure_contents" | "guild_channels" | "channel_tags_statuses" | "channel_tags" | "guild_role_statuses" | "role_statuses" | "command_access_levels" | "craft_recipes" | "craft_recipe_ingredients" | "bot_settings" | "guild_streamers" | "item_service_actions" | "bot_commands" | "api_sessions" | "admin_economy_adjustments" | "obs_media_actions";
 
 export interface DefaultDBTable {
     id: number;
@@ -266,6 +266,30 @@ export interface BotCommandsDB extends DefaultDBTable {
     created_at?: number | Date,
     started_at?: number | Date | null,
     completed_at?: number | Date | null,
+}
+
+export type ObsMediaActionStatus = "pending" | "sent" | "failed" | "refunded"
+export type ObsMediaProductKind = "image" | "gif"
+
+export interface ObsMediaActionsDB extends DefaultDBTable {
+    buyer_member_id: number,
+    streamer_id: number,
+    agent_id?: string | null,
+    product_id: string,
+    product_kind: ObsMediaProductKind,
+    product_title: string,
+    media_url: string,
+    price_odm: number,
+    duration_ms: number,
+    status: ObsMediaActionStatus,
+    command_id?: string | null,
+    error_code?: string | null,
+    error_message?: string | null,
+    refunded_odm: number,
+    created_at?: number | Date,
+    sent_at?: number | Date | null,
+    failed_at?: number | Date | null,
+    refunded_at?: number | Date | null,
 }
 
 export interface ApiSessionsDB extends DefaultDBTable {
