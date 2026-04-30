@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { ItemService } from "../../core/ItemService.js";
 import { EconomyService } from "../../core/EconomyService.js";
 import { NotificationService, NotificationSeverity } from "../../core/NotificationService.js";
+import { ShopObsService } from "../../core/ShopObsService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -139,6 +140,7 @@ function serviceErrorResponse(defaultCode: string, defaultMessage: string, error
 
 export async function registerDashboardRoutes(app: FastifyInstance): Promise<void> {
   const notificationService = NotificationService.getInstance();
+  const shopObsService = ShopObsService.getInstance();
 
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
@@ -415,6 +417,62 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       listings: response.data,
     };
   });
+
+  app.get("/shop/obs/streamers", { preHandler: requireAuth }, async () => {
+    try {
+      const streamers = await shopObsService.listObsShopStreamers();
+      return {
+        ok: true,
+        streamers,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "SHOP_OBS_STREAMERS_LOAD_FAILED",
+        "Failed to load OBS shop streamers.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/shop/obs/streamers/:streamerId", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "INVALID_STREAMER_ID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      const streamer = await shopObsService.getObsShopStreamerDetails(streamerId);
+      if (!streamer) {
+        return {
+          ok: false,
+          error: "SHOP_OBS_STREAMER_NOT_FOUND",
+          message: "Streamer was not found.",
+        };
+      }
+
+      return {
+        ok: true,
+        streamer,
+        mediaProducts: shopObsService.getObsMediaProducts(),
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "SHOP_OBS_STREAMER_DETAILS_FAILED",
+        "Failed to load OBS streamer details.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/shop/obs/streamers/:streamerId/media/:productId/purchase", { preHandler: requireAuth }, async () => ({
+    ok: false,
+    error: "OBS_MEDIA_PURCHASE_NOT_AVAILABLE",
+    message: "OBS media purchases are not available yet.",
+  }));
 
   app.get("/craft/recipes", { preHandler: requireAuth }, async () => {
     const response = await ItemService.getInstance().listCraftRecipes();
