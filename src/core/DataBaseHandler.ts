@@ -1,8 +1,9 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { CommandsDB, DataBaseTables, DefaultDBTable, GeneralSettingsDB, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, LogsChannelsDB, LogTypesDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
+import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, LogsChannelsDB, LogTypesDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
+import { settingsService } from "./SettingsService.js";
 
 export interface GuildBootstrapSummary {
     guildId: number;
@@ -207,28 +208,25 @@ export class DataBaseHandler {
 
     async addGuildToDB(guild: Guild | string): Promise<DBResponse<InsertIdResponse>>{
         try{
-            const GeneralSettingsDB = await this.getFromTable<GeneralSettingsDB>("general_settings");
-            if(DataBaseHandler.isSuccess(GeneralSettingsDB)) {
-                const earningMultiply = GeneralSettingsDB.data[0].default_earning_multiply
-                const result = await this.addRecords<GuildsDB>([{
-                    id: 0,
-                    ds_guild_id: guild instanceof Guild ? guild.id : guild,
-                    earning_multiply: earningMultiply
-                }], "guilds")
-                if(DataBaseHandler.isSuccess(result)) {
-                    return {
-                        success: true,
-                        data: {
-                            insertId: result.data.insertId
-                        }
+            const generalSettings = await settingsService.ensureGeneralSettings();
+            const discordGuildId = guild instanceof Guild ? guild.id : guild;
+            const earningMultiply = generalSettings.default_earning_multiply;
+            const result = await this.addRecords<GuildsDB>([{
+                id: 0,
+                ds_guild_id: discordGuildId,
+                earning_multiply: earningMultiply
+            }], "guilds");
+            if(DataBaseHandler.isSuccess(result)) {
+                console.log(`Created guild ${discordGuildId} with earning multiply ${earningMultiply}`);
+                return {
+                    success: true,
+                    data: {
+                        insertId: result.data.insertId
                     }
                 }
-                else return result
-            }
-            else{
-                return GeneralSettingsDB
             }
 
+            return result;
         }
         catch(err: unknown) {
             return DataBaseHandler.errorHandling(err);
@@ -675,38 +673,32 @@ export class DataBaseHandler {
                 if (tableResponse.data.length) member = tableResponse.data[0].id
                 else {
                     if(writeMember){
-                        const generalSettings = await this.getFromTable<GeneralSettingsDB>("general_settings")
-                        if(DataBaseHandler.isSuccess(generalSettings)){
-                            if(generalSettings.data.length){
-                                const addRecordResponse = await this.addRecords<MembersDB>([{
-                                    id: 0,
-                                    ds_member_id: member,
-                                    balance: generalSettings.data[0].start_balance
-                                }], "members")
-                                if (DataBaseHandler.isSuccess(addRecordResponse)){
-                                    member = addRecordResponse.data.insertId
-                                    if(!guild && !writeMemberToGuild)  {
-                                        return {
-                                            success: true,
-                                            data: {
-                                                exists: true,
-                                                memberId: member
-                                            }
+                        try {
+                            const generalSettings = await settingsService.ensureGeneralSettings();
+                            const startBalance = generalSettings.start_balance;
+                            const discordId = member;
+                            const addRecordResponse = await this.addRecords<MembersDB>([{
+                                id: 0,
+                                ds_member_id: discordId,
+                                balance: startBalance
+                            }], "members")
+                            if (DataBaseHandler.isSuccess(addRecordResponse)){
+                                console.log(`Created member ${discordId} with start balance ${startBalance} ODM`);
+                                member = addRecordResponse.data.insertId
+                                if(!guild && !writeMemberToGuild)  {
+                                    return {
+                                        success: true,
+                                        data: {
+                                            exists: true,
+                                            memberId: member
                                         }
                                     }
-                                } else return addRecordResponse
-                            }
-                            else {
-                                return {
-                                    success: false,
-                                    error: {
-                                        reason: "record_not_found",
-                                        relatedTo: "general_settings"
-                                    }
                                 }
-                            }
+                            } else return addRecordResponse
                         }
-                        else return generalSettings
+                        catch(err: unknown) {
+                            return DataBaseHandler.errorHandling(err);
+                        }
                     }
                     else{
                         return {
