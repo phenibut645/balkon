@@ -7,7 +7,8 @@ import { ObsMediaActionService, ObsMediaActionStatus } from "../../core/ObsMedia
 import { OverviewService } from "../../core/OverviewService.js";
 import { GuildDashboardService } from "../../core/GuildDashboardService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
-import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
+import { getBotAdminDashboardStats, isBotAdmin } from "../../core/BotAdmin.js";
+import { StreamerAccessService } from "../../core/StreamerAccessService.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireBotContributor } from "../middleware/requireBotContributor.js";
 import { requireBotAdmin } from "../middleware/requireBotAdmin.js";
@@ -183,6 +184,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   const shopObsService = ShopObsService.getInstance();
   const obsMediaActionService = ObsMediaActionService.getInstance();
   const guildDashboardService = GuildDashboardService.getInstance();
+  const streamerAccessService = StreamerAccessService.getInstance();
 
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
@@ -195,6 +197,205 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       avatarUrl: request.authUser!.avatarUrl ?? null,
     },
   }));
+
+  // ── Streamer Studio (Phase 1: access foundation) ────────────────────────────
+
+  app.get("/streamer-studio/me", { preHandler: requireAuth }, async request => {
+    try {
+      const discordId = request.authUser!.discordId;
+      const admin = request.authUser!.roles.includes("bot_admin") || isBotAdmin(discordId);
+      const data = await streamerAccessService.getMyStreamerAccess(discordId);
+
+      return {
+        ok: true,
+        data: {
+          owned: data.owned,
+          trusted: data.trusted,
+          isBotAdmin: admin,
+        },
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to load streamer studio access.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/streamer-studio/accessible", { preHandler: requireAuth }, async request => {
+    try {
+      const data = await streamerAccessService.listAccessibleStreamers(request.authUser!.discordId);
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to load accessible streamers.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/streamer-studio/:streamerId/trusted-users", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_TRUSTED_USER_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      const data = await streamerAccessService.listTrustedUsers(request.authUser!.discordId, streamerId);
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to load trusted users.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/trusted-users", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_TRUSTED_USER_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const discordId = typeof body.discordId === "string" ? body.discordId.trim() : "";
+    const role = typeof body.role === "string" ? body.role.trim() : undefined;
+
+    if (!discordId || !/^\d{1,32}$/.test(discordId)) {
+      return {
+        ok: false,
+        error: "STREAMER_TRUSTED_USER_INVALID",
+        message: "discordId must contain digits only and be at most 32 characters.",
+      };
+    }
+
+    if (role !== undefined && role !== "moderator" && role !== "manager") {
+      return {
+        ok: false,
+        error: "STREAMER_TRUSTED_USER_INVALID",
+        message: "role must be moderator or manager.",
+      };
+    }
+
+    try {
+      const data = await streamerAccessService.addTrustedUser({
+        actorDiscordId: request.authUser!.discordId,
+        streamerId,
+        targetDiscordId: discordId,
+        role: role as "moderator" | "manager" | undefined,
+      });
+
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+      if (e?.code === "STREAMER_TRUSTED_USER_INVALID") {
+        return {
+          ok: false,
+          error: "STREAMER_TRUSTED_USER_INVALID",
+          message: e.message || "Invalid trusted user input.",
+        };
+      }
+      if (e?.code === "STREAMER_TRUSTED_USER_SAVE_FAILED") {
+        return {
+          ok: false,
+          error: "STREAMER_TRUSTED_USER_SAVE_FAILED",
+          message: "Failed to save trusted user.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_TRUSTED_USER_SAVE_FAILED",
+        "Failed to save trusted user.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.delete("/streamer-studio/:streamerId/trusted-users/:memberId", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    const memberId = parsePositiveInteger((request.params as { memberId?: string }).memberId);
+    if (!streamerId || !memberId) {
+      return {
+        ok: false,
+        error: "STREAMER_TRUSTED_USER_INVALID",
+        message: "streamerId and memberId must be positive integers.",
+      };
+    }
+
+    try {
+      await streamerAccessService.removeTrustedUser({
+        actorDiscordId: request.authUser!.discordId,
+        streamerId,
+        memberId,
+      });
+      return { ok: true };
+    } catch (error) {
+      const e = error as { code?: string };
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+      if (e?.code === "STREAMER_TRUSTED_USER_DELETE_FAILED") {
+        return {
+          ok: false,
+          error: "STREAMER_TRUSTED_USER_DELETE_FAILED",
+          message: "Failed to delete trusted user.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_TRUSTED_USER_DELETE_FAILED",
+        "Failed to delete trusted user.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
 
   app.get("/overview/me", { preHandler: requireAuth }, async request => {
     try {
