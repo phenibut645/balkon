@@ -8,6 +8,7 @@ export type ObsRelayCommandName =
     | "obs.scene.items.list"
     | "obs.scene.item.transform.set"
     | "obs.scene.item.index.set"
+    | "obs.scene.source.text.create"
     | "obs.switchScene"
     | "obs.setSourceVisibility"
     | "obs.setTextInputText"
@@ -152,5 +153,33 @@ export interface ObsRelaySceneItemIndexSetResult {
     sceneItemId: number;
     sourceName: string | null;
     sceneItemIndex: number;
+    items: ObsRelaySceneItemIndexListItem[];
+}
+
+export interface ObsRelayTextSourceCreatePayload {
+    sceneName: string;
+    sourceName?: string | null;
+    text: string;
+    positionX?: number;
+    positionY?: number;
+    scaleX?: number;
+    scaleY?: number;
+    rotation?: number;
+}
+
+export interface ObsRelayTextSourceCreateResult {
+    sceneName: string;
+    sceneItemId: number;
+    sourceName: string;
+    inputKind: string;
+    transform: {
+        positionX: number;
+        positionY: number;
+        scaleX: number;
+        scaleY: number;
+        rotation: number;
+        width?: number;
+        height?: number;
+    };
     items: ObsRelaySceneItemIndexListItem[];
 }

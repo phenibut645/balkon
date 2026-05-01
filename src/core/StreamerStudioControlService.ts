@@ -104,6 +104,38 @@ type SetSceneItemIndexResult = {
   }>;
 };
 
+type CreateTextSourceInput = {
+  sceneName: string;
+  sourceName?: string | null;
+  text: string;
+  positionX?: number;
+  positionY?: number;
+  scaleX?: number;
+  scaleY?: number;
+  rotation?: number;
+};
+
+type CreateTextSourceResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string;
+  inputKind: string;
+  transform: {
+    positionX: number;
+    positionY: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+    width?: number;
+    height?: number;
+  };
+  items: Array<{
+    sceneItemId: number;
+    sourceName: string;
+    sceneItemIndex: number;
+  }>;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -225,6 +257,41 @@ export class StreamerStudioControlService {
     );
 
     return this.normalizeSetSceneItemIndexResult(data, normalizedInput);
+  }
+
+  async createTextSource(
+    discordId: string,
+    streamerId: number,
+    input: CreateTextSourceInput,
+  ): Promise<CreateTextSourceResult> {
+    const normalizedInput = this.normalizeCreateTextSourceInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sourceName: normalizedInput.sourceName ?? null,
+      text: normalizedInput.text,
+      positionX: normalizedInput.positionX,
+      positionY: normalizedInput.positionY,
+      scaleX: normalizedInput.scaleX,
+      scaleY: normalizedInput.scaleY,
+      rotation: normalizedInput.rotation,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.source.text.create",
+      payload,
+      "OBS_TEXT_SOURCE_COMMAND_FAILED",
+      "OBS text source command failed.",
+    );
+
+    return this.normalizeCreateTextSourceResult(data, normalizedInput);
   }
 
   isControlError(error: unknown): error is { code: string; message: string } {
@@ -441,6 +508,47 @@ export class StreamerStudioControlService {
     };
   }
 
+  private normalizeCreateTextSourceInput(input: CreateTextSourceInput): Required<CreateTextSourceInput> {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!text.length || text.length > 500) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_INVALID", "text must be a non-empty string up to 500 chars.");
+    }
+
+    const sourceName = input.sourceName;
+    if (sourceName !== undefined && sourceName !== null && typeof sourceName !== "string") {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_INVALID", "sourceName must be a string or null.");
+    }
+    if (typeof sourceName === "string" && sourceName.trim().length > 160) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    const positionX = input.positionX === undefined ? 100 : Number(input.positionX);
+    const positionY = input.positionY === undefined ? 100 : Number(input.positionY);
+    const scaleX = input.scaleX === undefined ? 1 : Number(input.scaleX);
+    const scaleY = input.scaleY === undefined ? 1 : Number(input.scaleY);
+    const rotation = input.rotation === undefined ? 0 : Number(input.rotation);
+
+    if (!Number.isFinite(positionX) || !Number.isFinite(positionY) || !Number.isFinite(scaleX) || !Number.isFinite(scaleY) || !Number.isFinite(rotation)) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_INVALID", "position, scale, and rotation fields must be finite numbers.");
+    }
+
+    return {
+      sceneName,
+      sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : null,
+      text,
+      positionX: clampNumber(positionX, -10_000, 10_000),
+      positionY: clampNumber(positionY, -10_000, 10_000),
+      scaleX: clampNumber(scaleX, 0.05, 10),
+      scaleY: clampNumber(scaleY, 0.05, 10),
+      rotation: clampNumber(rotation, -360, 360),
+    };
+  }
+
   private normalizeSetSceneItemIndexInput(input: SetSceneItemIndexInput): SetSceneItemIndexInput {
     const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
     if (!sceneName.length || sceneName.length > 160) {
@@ -535,6 +643,66 @@ export class StreamerStudioControlService {
         rotation: Number.isFinite(rotation) ? rotation : (fallback.transform.rotation ?? 0),
       },
     };
+
+    if (width !== undefined && Number.isFinite(width)) {
+      output.transform.width = width;
+    }
+    if (height !== undefined && Number.isFinite(height)) {
+      output.transform.height = height;
+    }
+
+    return output;
+  }
+
+  private normalizeCreateTextSourceResult(raw: unknown, fallback: Required<CreateTextSourceInput>): CreateTextSourceResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_COMMAND_FAILED", "Invalid text source response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = typeof raw.sourceName === "string" ? raw.sourceName.trim() : "";
+    const inputKindRaw = typeof raw.inputKind === "string" ? raw.inputKind.trim() : "";
+    const transformRaw = isRecord(raw.transform) ? raw.transform : {};
+
+    const positionX = Number(transformRaw.positionX);
+    const positionY = Number(transformRaw.positionY);
+    const scaleX = Number(transformRaw.scaleX);
+    const scaleY = Number(transformRaw.scaleY);
+    const rotation = Number(transformRaw.rotation);
+    const width = transformRaw.width === undefined || transformRaw.width === null ? undefined : Number(transformRaw.width);
+    const height = transformRaw.height === undefined || transformRaw.height === null ? undefined : Number(transformRaw.height);
+    const itemsValue = raw.items;
+
+    const items = Array.isArray(itemsValue)
+      ? itemsValue
+        .filter(isRecord)
+        .map(item => ({
+          sceneItemId: Number(item.sceneItemId),
+          sourceName: typeof item.sourceName === "string" ? item.sourceName.trim() : "",
+          sceneItemIndex: Number(item.sceneItemIndex),
+        }))
+        .filter(item => Number.isInteger(item.sceneItemId) && item.sceneItemId > 0 && item.sourceName.length > 0 && Number.isInteger(item.sceneItemIndex) && item.sceneItemIndex >= 0)
+      : [];
+
+    const output: CreateTextSourceResult = {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : 0,
+      sourceName: sourceNameRaw || fallback.sourceName || "",
+      inputKind: inputKindRaw,
+      transform: {
+        positionX: Number.isFinite(positionX) ? positionX : fallback.positionX,
+        positionY: Number.isFinite(positionY) ? positionY : fallback.positionY,
+        scaleX: Number.isFinite(scaleX) ? scaleX : fallback.scaleX,
+        scaleY: Number.isFinite(scaleY) ? scaleY : fallback.scaleY,
+        rotation: Number.isFinite(rotation) ? rotation : fallback.rotation,
+      },
+      items,
+    };
+
+    if (!output.sceneItemId || !output.sourceName.length || !output.inputKind.length) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_COMMAND_FAILED", "Invalid text source response.");
+    }
 
     if (width !== undefined && Number.isFinite(width)) {
       output.transform.width = width;

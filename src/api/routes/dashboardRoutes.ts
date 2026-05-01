@@ -573,6 +573,102 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
+  app.post("/streamer-studio/:streamerId/control/source/text", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    const sourceNameRaw = body.sourceName;
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!text.length || text.length > 500) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_INVALID",
+        message: "text must be a non-empty string up to 500 chars.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    const positionX = body.positionX === undefined ? 100 : parseFiniteNumber(body.positionX);
+    const positionY = body.positionY === undefined ? 100 : parseFiniteNumber(body.positionY);
+    const scaleX = body.scaleX === undefined ? 1 : parseFiniteNumber(body.scaleX);
+    const scaleY = body.scaleY === undefined ? 1 : parseFiniteNumber(body.scaleY);
+    const rotation = body.rotation === undefined ? 0 : parseFiniteNumber(body.rotation);
+
+    if (positionX === null || positionY === null || scaleX === null || scaleY === null || rotation === null) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_INVALID",
+        message: "position, scale, and rotation fields must be finite numbers.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.createTextSource(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sourceName: sourceName ?? null,
+          text,
+          positionX,
+          positionY,
+          scaleX,
+          scaleY,
+          rotation,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to create OBS text source.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.patch("/streamer-studio/:streamerId/control/scene-item/transform", { preHandler: requireAuth }, async request => {
     const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
     if (!streamerId) {
