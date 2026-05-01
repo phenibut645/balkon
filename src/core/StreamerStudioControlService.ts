@@ -1,0 +1,328 @@
+import { RowDataPacket } from "mysql2";
+import pool from "../db.js";
+import { getBotCommandQueue } from "./BotCommandQueue.js";
+import { StreamerAccessService } from "./StreamerAccessService.js";
+import { ObsAgentStatusService, ObsAgentStatusView } from "./ObsAgentStatusService.js";
+import { ObsRelayCommandName } from "../types/obs-agent.types.js";
+
+const OBS_AGENT_BINDING_PREFIX = "obs_agent_binding:";
+const OBS_AGENT_STALE_MS = 120_000;
+const OBS_COMMAND_TIMEOUT_MS = 20_000;
+const OBS_COMMAND_POLL_MS = 400;
+
+class StreamerStudioControlError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "StreamerStudioControlError";
+  }
+}
+
+interface StreamerRow extends RowDataPacket {
+  id: number;
+}
+
+interface BotSettingRow extends RowDataPacket {
+  setting_key: string;
+  setting_value: string | null;
+}
+
+interface BotCommandStatusRow extends RowDataPacket {
+  id: number;
+  status: "pending" | "processing" | "completed" | "failed";
+  result_json: string | null;
+  error_message: string | null;
+}
+
+type ScenesListResult = {
+  scenes: Array<{ name: string }>;
+  currentProgramSceneName: string | null;
+};
+
+type SceneItemsListResult = {
+  sceneName: string;
+  items: Array<{
+    sceneItemId: number;
+    sourceName: string;
+    inputKind: string | null;
+    enabled: boolean;
+    transform: {
+      positionX: number;
+      positionY: number;
+      scaleX: number;
+      scaleY: number;
+      rotation: number;
+      width?: number;
+      height?: number;
+    };
+  }>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeJsonObjectParse(jsonText: string | null): Record<string, unknown> | null {
+  if (!jsonText) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(jsonText);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export class StreamerStudioControlService {
+  private static instance: StreamerStudioControlService;
+
+  static getInstance(): StreamerStudioControlService {
+    if (!StreamerStudioControlService.instance) {
+      StreamerStudioControlService.instance = new StreamerStudioControlService();
+    }
+    return StreamerStudioControlService.instance;
+  }
+
+  async listScenes(discordId: string, streamerId: number): Promise<ScenesListResult> {
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+
+    const agentId = await this.resolveAgentId(streamerId);
+    if (!agentId) {
+      throw new StreamerStudioControlError("OBS_AGENT_NOT_CONFIGURED", "Streamer OBS Agent is not configured.");
+    }
+
+    await this.ensureAgentOnlineRecent(agentId);
+
+    const data = await this.dispatchObsCommand(streamerId, discordId, agentId, "obs.scenes.list", {});
+    return this.normalizeScenesListResult(data);
+  }
+
+  async listSceneItems(discordId: string, streamerId: number, sceneName: string): Promise<SceneItemsListResult> {
+    const normalizedSceneName = sceneName.trim();
+    if (!normalizedSceneName.length || normalizedSceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_SCENE_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+
+    const agentId = await this.resolveAgentId(streamerId);
+    if (!agentId) {
+      throw new StreamerStudioControlError("OBS_AGENT_NOT_CONFIGURED", "Streamer OBS Agent is not configured.");
+    }
+
+    await this.ensureAgentOnlineRecent(agentId);
+
+    const data = await this.dispatchObsCommand(streamerId, discordId, agentId, "obs.scene.items.list", { sceneName: normalizedSceneName });
+    return this.normalizeSceneItemsListResult(data, normalizedSceneName);
+  }
+
+  isControlError(error: unknown): error is { code: string; message: string } {
+    return error instanceof StreamerStudioControlError;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────────
+
+  private async ensureCanControl(discordId: string, streamerId: number): Promise<void> {
+    const allowed = await StreamerAccessService.getInstance().canControlStreamer(discordId, streamerId);
+    if (!allowed) {
+      throw new StreamerStudioControlError("STREAMER_STUDIO_FORBIDDEN", "You do not have access to control this streamer.");
+    }
+  }
+
+  private async ensureStreamerExists(streamerId: number): Promise<void> {
+    const [rows] = await pool.query<StreamerRow[]>(
+      `SELECT id FROM streamers WHERE id = ? LIMIT 1`,
+      [streamerId],
+    );
+    if (!rows[0]) {
+      throw new StreamerStudioControlError("STREAMER_NOT_FOUND", "Streamer not found.");
+    }
+  }
+
+  private async resolveAgentId(streamerId: number): Promise<string | null> {
+    const [rows] = await pool.query<BotSettingRow[]>(
+      `SELECT setting_key, setting_value FROM bot_settings WHERE setting_key = ? LIMIT 1`,
+      [`${OBS_AGENT_BINDING_PREFIX}${streamerId}`],
+    );
+
+    const value = rows[0]?.setting_value ? String(rows[0].setting_value) : "";
+    if (!value) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(value) as { agentId?: unknown };
+      const agentId = typeof parsed.agentId === "string" ? parsed.agentId.trim() : "";
+      return agentId.length ? agentId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private isAgentStatusOnlineRecent(status: ObsAgentStatusView | null): boolean {
+    if (!status || !status.online || !status.lastSeenAt) {
+      return false;
+    }
+
+    const lastSeenAtMs = Date.parse(status.lastSeenAt);
+    if (Number.isNaN(lastSeenAtMs)) {
+      return false;
+    }
+
+    return Date.now() - lastSeenAtMs <= OBS_AGENT_STALE_MS;
+  }
+
+  private async ensureAgentOnlineRecent(agentId: string): Promise<void> {
+    const status = await ObsAgentStatusService.getInstance().getStatus(agentId);
+    if (!this.isAgentStatusOnlineRecent(status)) {
+      throw new StreamerStudioControlError("OBS_AGENT_OFFLINE", "Streamer OBS Agent is offline.");
+    }
+  }
+
+  private async dispatchObsCommand(
+    streamerId: number,
+    requestedByDiscordId: string,
+    agentId: string,
+    command: ObsRelayCommandName,
+    payload: Record<string, unknown>,
+  ): Promise<unknown> {
+    const queue = getBotCommandQueue();
+    const { commandId } = await queue.enqueue({
+      type: "OBS_RELAY_COMMAND",
+      guildId: null,
+      requestedByDiscordId,
+      payload: {
+        agentId,
+        streamerId,
+        command,
+        payload,
+        source: "streamer_studio",
+      },
+    });
+
+    const result = await this.waitForBotCommandCompletion(commandId, OBS_COMMAND_TIMEOUT_MS);
+    if (!result) {
+      throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "OBS command returned empty result.");
+    }
+
+    const data = result.data;
+    return data;
+  }
+
+  private async waitForBotCommandCompletion(commandId: number, timeoutMs: number): Promise<Record<string, unknown> | null> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      const [rows] = await pool.query<BotCommandStatusRow[]>(
+        `SELECT id, status, result_json, error_message
+         FROM bot_commands
+         WHERE id = ?
+         LIMIT 1`,
+        [commandId],
+      );
+
+      const row = rows[0];
+      if (!row) {
+        throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "OBS command record disappeared.");
+      }
+
+      if (row.status === "completed") {
+        return safeJsonObjectParse(row.result_json);
+      }
+
+      if (row.status === "failed") {
+        throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", row.error_message || "OBS command failed.");
+      }
+
+      await new Promise(resolve => setTimeout(resolve, OBS_COMMAND_POLL_MS));
+    }
+
+    throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "OBS command timed out.");
+  }
+
+  private normalizeScenesListResult(raw: unknown): ScenesListResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "Invalid scenes list response.");
+    }
+
+    const scenesValue = raw.scenes;
+    const currentValue = raw.currentProgramSceneName;
+
+    const scenes = Array.isArray(scenesValue)
+      ? scenesValue
+        .filter(isRecord)
+        .map(item => (typeof item.name === "string" ? item.name.trim() : ""))
+        .filter(Boolean)
+        .map(name => ({ name }))
+      : [];
+
+    const currentProgramSceneName = typeof currentValue === "string"
+      ? (currentValue.trim() || null)
+      : null;
+
+    return { scenes, currentProgramSceneName };
+  }
+
+  private normalizeSceneItemsListResult(raw: unknown, requestedSceneName: string): SceneItemsListResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "Invalid scene items response.");
+    }
+
+    const sceneName = typeof raw.sceneName === "string" ? raw.sceneName.trim() : requestedSceneName;
+    const itemsValue = raw.items;
+
+    const items = Array.isArray(itemsValue)
+      ? itemsValue
+        .filter(isRecord)
+        .map(item => {
+          const sceneItemId = Number(item.sceneItemId);
+          const sourceName = typeof item.sourceName === "string" ? item.sourceName.trim() : "";
+          const inputKind = typeof item.inputKind === "string" ? (item.inputKind.trim() || null) : null;
+          const enabled = Boolean(item.enabled);
+
+          const transformRaw = isRecord(item.transform) ? item.transform : {};
+          const positionX = Number(transformRaw.positionX ?? 0);
+          const positionY = Number(transformRaw.positionY ?? 0);
+          const scaleX = Number(transformRaw.scaleX ?? 1);
+          const scaleY = Number(transformRaw.scaleY ?? 1);
+          const rotation = Number(transformRaw.rotation ?? 0);
+          const width = transformRaw.width === undefined || transformRaw.width === null ? undefined : Number(transformRaw.width);
+          const height = transformRaw.height === undefined || transformRaw.height === null ? undefined : Number(transformRaw.height);
+
+          const baseTransform: SceneItemsListResult["items"][number]["transform"] = {
+            positionX: Number.isFinite(positionX) ? positionX : 0,
+            positionY: Number.isFinite(positionY) ? positionY : 0,
+            scaleX: Number.isFinite(scaleX) ? scaleX : 1,
+            scaleY: Number.isFinite(scaleY) ? scaleY : 1,
+            rotation: Number.isFinite(rotation) ? rotation : 0,
+          };
+
+          if (width !== undefined && Number.isFinite(width)) {
+            baseTransform.width = width;
+          }
+          if (height !== undefined && Number.isFinite(height)) {
+            baseTransform.height = height;
+          }
+
+          return {
+            sceneItemId,
+            sourceName,
+            inputKind,
+            enabled,
+            transform: baseTransform,
+          };
+        })
+        .filter(item => Number.isFinite(item.sceneItemId) && item.sceneItemId > 0 && item.sourceName.length > 0)
+      : [];
+
+    return {
+      sceneName,
+      items,
+    };
+  }
+}
+
+export const streamerStudioControlService = StreamerStudioControlService.getInstance();
+

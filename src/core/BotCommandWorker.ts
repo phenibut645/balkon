@@ -2,7 +2,7 @@ import { Client, PermissionsBitField } from "discord.js";
 import { BotCommandRecord, getBotCommandQueue } from "./BotCommandQueue.js";
 import { isBotAdmin } from "./BotAdmin.js";
 import { obsRelayService } from "./ObsRelayService.js";
-import { ObsRelayMediaShowPayload } from "../types/obs-agent.types.js";
+import { ObsRelayCommandName, ObsRelayMediaShowPayload } from "../types/obs-agent.types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const DEFAULT_KICK_REASON = "Requested via API command queue";
@@ -67,6 +67,9 @@ export class BotCommandWorker {
           return;
         case "OBS_MEDIA_SHOW":
           await this.handleObsMediaShow(command);
+          return;
+        case "OBS_RELAY_COMMAND":
+          await this.handleObsRelayCommand(command);
           return;
         case "BAN_MEMBER":
         case "UNBAN_MEMBER":
@@ -142,6 +145,55 @@ export class BotCommandWorker {
     });
 
     console.log(`[BotCommandWorker] Completed OBS_MEDIA_SHOW command ${command.id}`);
+  }
+
+  private async handleObsRelayCommand(command: BotCommandRecord): Promise<void> {
+    const payload = this.validateObsRelayCommandPayload(command.payload);
+    const result = await obsRelayService.sendCommand<unknown>(payload.agentId, payload.command, payload.payload);
+
+    await this.queue.markCompleted(command.id, {
+      action: "OBS_RELAY_COMMAND",
+      agentId: payload.agentId,
+      streamerId: payload.streamerId,
+      command: payload.command,
+      data: result,
+      processedAt: new Date().toISOString(),
+    });
+  }
+
+  private validateObsRelayCommandPayload(payload: Record<string, unknown>): {
+    agentId: string;
+    streamerId: number;
+    command: ObsRelayCommandName;
+    payload: Record<string, unknown>;
+  } {
+    const agentId = typeof payload.agentId === "string" ? payload.agentId.trim() : "";
+    const streamerId = typeof payload.streamerId === "number" ? payload.streamerId : Number(payload.streamerId);
+    const command = typeof payload.command === "string" ? payload.command.trim() : "";
+    const commandPayload = payload.payload;
+
+    if (!agentId) {
+      throw new Error("Invalid payload: agentId must be a non-empty string");
+    }
+
+    if (!Number.isInteger(streamerId) || streamerId <= 0) {
+      throw new Error("Invalid payload: streamerId must be a positive integer");
+    }
+
+    if (!command) {
+      throw new Error("Invalid payload: command must be a non-empty string");
+    }
+
+    if (!commandPayload || typeof commandPayload !== "object" || Array.isArray(commandPayload)) {
+      throw new Error("Invalid payload: payload must be an object");
+    }
+
+    return {
+      agentId,
+      streamerId,
+      command: command as ObsRelayCommandName,
+      payload: commandPayload as Record<string, unknown>,
+    };
   }
 
   private validateKickPayload(payload: Record<string, unknown>): { memberId: string; reason: string } {

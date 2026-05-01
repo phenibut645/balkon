@@ -4,6 +4,8 @@ export type ObsRelayCommandName =
     | "obs.getStatus"
     | "obs.listScenes"
     | "obs.listSceneItems"
+    | "obs.scenes.list"
+    | "obs.scene.items.list"
     | "obs.switchScene"
     | "obs.setSourceVisibility"
     | "obs.setTextInputText"

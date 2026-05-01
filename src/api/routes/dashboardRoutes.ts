@@ -9,6 +9,7 @@ import { GuildDashboardService } from "../../core/GuildDashboardService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats, isBotAdmin } from "../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../core/StreamerAccessService.js";
+import { StreamerStudioControlService } from "../../core/StreamerStudioControlService.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireBotContributor } from "../middleware/requireBotContributor.js";
 import { requireBotAdmin } from "../middleware/requireBotAdmin.js";
@@ -185,6 +186,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   const obsMediaActionService = ObsMediaActionService.getInstance();
   const guildDashboardService = GuildDashboardService.getInstance();
   const streamerAccessService = StreamerAccessService.getInstance();
+  const streamerStudioControlService = StreamerStudioControlService.getInstance();
 
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
@@ -392,6 +394,78 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       return serviceErrorResponse(
         "STREAMER_TRUSTED_USER_DELETE_FAILED",
         "Failed to delete trusted user.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/control/scenes/list", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.listScenes(request.authUser!.discordId, streamerId);
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to load OBS scenes.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/control/scene-items/list", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName : "";
+    if (!sceneName.trim().length || sceneName.trim().length > 160) {
+      return {
+        ok: false,
+        error: "OBS_SCENE_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.listSceneItems(request.authUser!.discordId, streamerId, sceneName);
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to load OBS scene items.",
         error instanceof Error ? error : undefined,
       );
     }

@@ -9,7 +9,8 @@ export type BotCommandType =
   | "ADD_ROLE"
   | "REMOVE_ROLE"
   | "SEND_CHANNEL_MESSAGE"
-  | "OBS_MEDIA_SHOW";
+  | "OBS_MEDIA_SHOW"
+  | "OBS_RELAY_COMMAND";
 
 export type BotCommandStatus = "pending" | "processing" | "completed" | "failed";
 
