@@ -486,6 +486,93 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
+  app.patch("/streamer-studio/:streamerId/control/scene-item/index", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_INDEX_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const sceneItemId = parsePositiveInteger(body.sceneItemId);
+    const sourceNameRaw = body.sourceName;
+    const sceneItemIndex = parseInteger(body.sceneItemIndex);
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_INDEX_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!sceneItemId) {
+      return {
+        ok: false,
+        error: "OBS_INDEX_INVALID",
+        message: "sceneItemId must be a positive integer.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_INDEX_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_INDEX_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    if (sceneItemIndex === null || sceneItemIndex < 0) {
+      return {
+        ok: false,
+        error: "OBS_INDEX_INVALID",
+        message: "sceneItemIndex must be an integer greater than or equal to 0.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.setSceneItemIndex(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sceneItemId,
+          sourceName: sourceName ?? null,
+          sceneItemIndex,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to apply OBS scene item index.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.patch("/streamer-studio/:streamerId/control/scene-item/transform", { preHandler: requireAuth }, async request => {
     const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
     if (!streamerId) {

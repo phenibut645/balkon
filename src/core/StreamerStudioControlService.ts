@@ -85,6 +85,25 @@ type ApplySceneItemTransformResult = {
   };
 };
 
+type SetSceneItemIndexInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+  sceneItemIndex: number;
+};
+
+type SetSceneItemIndexResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string | null;
+  sceneItemIndex: number;
+  items: Array<{
+    sceneItemId: number;
+    sourceName: string;
+    sceneItemIndex: number;
+  }>;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -175,6 +194,37 @@ export class StreamerStudioControlService {
     );
 
     return this.normalizeApplySceneItemTransformResult(data, normalizedInput);
+  }
+
+  async setSceneItemIndex(
+    discordId: string,
+    streamerId: number,
+    input: SetSceneItemIndexInput,
+  ): Promise<SetSceneItemIndexResult> {
+    const normalizedInput = this.normalizeSetSceneItemIndexInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName ?? null,
+      sceneItemIndex: normalizedInput.sceneItemIndex,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.item.index.set",
+      payload,
+      "OBS_INDEX_COMMAND_FAILED",
+      "OBS scene item index command failed.",
+    );
+
+    return this.normalizeSetSceneItemIndexResult(data, normalizedInput);
   }
 
   isControlError(error: unknown): error is { code: string; message: string } {
@@ -273,7 +323,7 @@ export class StreamerStudioControlService {
       },
     });
 
-    const result = await this.waitForBotCommandCompletion(commandId, OBS_COMMAND_TIMEOUT_MS);
+    const result = await this.waitForBotCommandCompletion(commandId, OBS_COMMAND_TIMEOUT_MS, errorCode, defaultErrorMessage);
     if (!result) {
       throw new StreamerStudioControlError(errorCode, `${defaultErrorMessage} Empty result.`);
     }
@@ -282,7 +332,12 @@ export class StreamerStudioControlService {
     return data;
   }
 
-  private async waitForBotCommandCompletion(commandId: number, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  private async waitForBotCommandCompletion(
+    commandId: number,
+    timeoutMs: number,
+    errorCode = "OBS_SCENE_COMMAND_FAILED",
+    defaultErrorMessage = "OBS command failed.",
+  ): Promise<Record<string, unknown> | null> {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt <= timeoutMs) {
@@ -296,7 +351,7 @@ export class StreamerStudioControlService {
 
       const row = rows[0];
       if (!row) {
-        throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "OBS command record disappeared.");
+        throw new StreamerStudioControlError(errorCode, `${defaultErrorMessage} Command record disappeared.`);
       }
 
       if (row.status === "completed") {
@@ -304,13 +359,13 @@ export class StreamerStudioControlService {
       }
 
       if (row.status === "failed") {
-        throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", row.error_message || "OBS command failed.");
+        throw new StreamerStudioControlError(errorCode, row.error_message || defaultErrorMessage);
       }
 
       await new Promise(resolve => setTimeout(resolve, OBS_COMMAND_POLL_MS));
     }
 
-    throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "OBS command timed out.");
+    throw new StreamerStudioControlError(errorCode, `${defaultErrorMessage} Command timed out.`);
   }
 
   private normalizeScenesListResult(raw: unknown): ScenesListResult {
@@ -383,6 +438,67 @@ export class StreamerStudioControlService {
         scaleY: clampNumber(scaleY, 0.05, 10),
         rotation: clampNumber(rotation, -360, 360),
       },
+    };
+  }
+
+  private normalizeSetSceneItemIndexInput(input: SetSceneItemIndexInput): SetSceneItemIndexInput {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_INDEX_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_INDEX_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    if (!Number.isInteger(input.sceneItemIndex) || input.sceneItemIndex < 0) {
+      throw new StreamerStudioControlError("OBS_INDEX_INVALID", "sceneItemIndex must be an integer greater than or equal to 0.");
+    }
+
+    const sourceName = input.sourceName;
+    if (sourceName !== undefined && sourceName !== null && typeof sourceName !== "string") {
+      throw new StreamerStudioControlError("OBS_INDEX_INVALID", "sourceName must be a string or null.");
+    }
+    if (typeof sourceName === "string" && sourceName.trim().length > 160) {
+      throw new StreamerStudioControlError("OBS_INDEX_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : (sourceName ?? null),
+      sceneItemIndex: input.sceneItemIndex,
+    };
+  }
+
+  private normalizeSetSceneItemIndexResult(raw: unknown, fallback: SetSceneItemIndexInput): SetSceneItemIndexResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_INDEX_COMMAND_FAILED", "Invalid scene item index response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = raw.sourceName;
+    const sceneItemIndexRaw = Number(raw.sceneItemIndex);
+    const itemsValue = raw.items;
+
+    const items = Array.isArray(itemsValue)
+      ? itemsValue
+        .filter(isRecord)
+        .map(item => ({
+          sceneItemId: Number(item.sceneItemId),
+          sourceName: typeof item.sourceName === "string" ? item.sourceName.trim() : "",
+          sceneItemIndex: Number(item.sceneItemIndex),
+        }))
+        .filter(item => Number.isInteger(item.sceneItemId) && item.sceneItemId > 0 && item.sourceName.length > 0 && Number.isInteger(item.sceneItemIndex) && item.sceneItemIndex >= 0)
+      : [];
+
+    return {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: typeof sourceNameRaw === "string" ? (sourceNameRaw.trim() || null) : null,
+      sceneItemIndex: Number.isInteger(sceneItemIndexRaw) && sceneItemIndexRaw >= 0 ? sceneItemIndexRaw : fallback.sceneItemIndex,
+      items,
     };
   }
 
