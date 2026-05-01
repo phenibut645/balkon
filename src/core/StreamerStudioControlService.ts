@@ -57,6 +57,34 @@ type SceneItemsListResult = {
   }>;
 };
 
+type ApplySceneItemTransformInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+  transform: {
+    positionX: number;
+    positionY: number;
+    scaleX: number;
+    scaleY: number;
+    rotation?: number;
+  };
+};
+
+type ApplySceneItemTransformResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string | null;
+  transform: {
+    positionX: number;
+    positionY: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+    width?: number;
+    height?: number;
+  };
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -73,6 +101,10 @@ function safeJsonObjectParse(jsonText: string | null): Record<string, unknown> |
   }
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 export class StreamerStudioControlService {
   private static instance: StreamerStudioControlService;
 
@@ -87,12 +119,7 @@ export class StreamerStudioControlService {
     await this.ensureStreamerExists(streamerId);
     await this.ensureCanControl(discordId, streamerId);
 
-    const agentId = await this.resolveAgentId(streamerId);
-    if (!agentId) {
-      throw new StreamerStudioControlError("OBS_AGENT_NOT_CONFIGURED", "Streamer OBS Agent is not configured.");
-    }
-
-    await this.ensureAgentOnlineRecent(agentId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
 
     const data = await this.dispatchObsCommand(streamerId, discordId, agentId, "obs.scenes.list", {});
     return this.normalizeScenesListResult(data);
@@ -107,15 +134,47 @@ export class StreamerStudioControlService {
     await this.ensureStreamerExists(streamerId);
     await this.ensureCanControl(discordId, streamerId);
 
-    const agentId = await this.resolveAgentId(streamerId);
-    if (!agentId) {
-      throw new StreamerStudioControlError("OBS_AGENT_NOT_CONFIGURED", "Streamer OBS Agent is not configured.");
-    }
-
-    await this.ensureAgentOnlineRecent(agentId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
 
     const data = await this.dispatchObsCommand(streamerId, discordId, agentId, "obs.scene.items.list", { sceneName: normalizedSceneName });
     return this.normalizeSceneItemsListResult(data, normalizedSceneName);
+  }
+
+  async applySceneItemTransform(
+    discordId: string,
+    streamerId: number,
+    input: ApplySceneItemTransformInput,
+  ): Promise<ApplySceneItemTransformResult> {
+    const normalizedInput = this.normalizeApplySceneItemTransformInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName ?? null,
+      transform: {
+        positionX: normalizedInput.transform.positionX,
+        positionY: normalizedInput.transform.positionY,
+        scaleX: normalizedInput.transform.scaleX,
+        scaleY: normalizedInput.transform.scaleY,
+        rotation: normalizedInput.transform.rotation ?? 0,
+      },
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.item.transform.set",
+      payload,
+      "OBS_TRANSFORM_COMMAND_FAILED",
+      "OBS transform command failed.",
+    );
+
+    return this.normalizeApplySceneItemTransformResult(data, normalizedInput);
   }
 
   isControlError(error: unknown): error is { code: string; message: string } {
@@ -161,6 +220,16 @@ export class StreamerStudioControlService {
     }
   }
 
+  private async resolveOnlineAgentBinding(streamerId: number): Promise<string> {
+    const agentId = await this.resolveAgentId(streamerId);
+    if (!agentId) {
+      throw new StreamerStudioControlError("OBS_AGENT_NOT_CONFIGURED", "Streamer OBS Agent is not configured.");
+    }
+
+    await this.ensureAgentOnlineRecent(agentId);
+    return agentId;
+  }
+
   private isAgentStatusOnlineRecent(status: ObsAgentStatusView | null): boolean {
     if (!status || !status.online || !status.lastSeenAt) {
       return false;
@@ -187,6 +256,8 @@ export class StreamerStudioControlService {
     agentId: string,
     command: ObsRelayCommandName,
     payload: Record<string, unknown>,
+    errorCode = "OBS_SCENE_COMMAND_FAILED",
+    defaultErrorMessage = "OBS command failed.",
   ): Promise<unknown> {
     const queue = getBotCommandQueue();
     const { commandId } = await queue.enqueue({
@@ -204,7 +275,7 @@ export class StreamerStudioControlService {
 
     const result = await this.waitForBotCommandCompletion(commandId, OBS_COMMAND_TIMEOUT_MS);
     if (!result) {
-      throw new StreamerStudioControlError("OBS_SCENE_COMMAND_FAILED", "OBS command returned empty result.");
+      throw new StreamerStudioControlError(errorCode, `${defaultErrorMessage} Empty result.`);
     }
 
     const data = result.data;
@@ -263,6 +334,100 @@ export class StreamerStudioControlService {
       : null;
 
     return { scenes, currentProgramSceneName };
+  }
+
+  private normalizeApplySceneItemTransformInput(input: ApplySceneItemTransformInput): ApplySceneItemTransformInput {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    if (!isRecord(input.transform)) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "transform must be an object.");
+    }
+
+    const positionX = Number(input.transform.positionX);
+    const positionY = Number(input.transform.positionY);
+    const scaleX = Number(input.transform.scaleX);
+    const scaleY = Number(input.transform.scaleY);
+    const rotationRaw = input.transform.rotation;
+    const rotation = rotationRaw === undefined ? 0 : Number(rotationRaw);
+
+    if (!Number.isFinite(positionX) || !Number.isFinite(positionY) || !Number.isFinite(scaleX) || !Number.isFinite(scaleY)) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "transform position/scale fields must be finite numbers.");
+    }
+    if (rotationRaw !== undefined && !Number.isFinite(rotation)) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "transform.rotation must be a finite number.");
+    }
+
+    const sourceName = input.sourceName;
+    if (sourceName !== undefined && sourceName !== null && typeof sourceName !== "string") {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "sourceName must be a string or null.");
+    }
+    if (typeof sourceName === "string" && sourceName.trim().length > 160) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : (sourceName ?? null),
+      transform: {
+        positionX: clampNumber(positionX, -10_000, 10_000),
+        positionY: clampNumber(positionY, -10_000, 10_000),
+        scaleX: clampNumber(scaleX, 0.05, 10),
+        scaleY: clampNumber(scaleY, 0.05, 10),
+        rotation: clampNumber(rotation, -360, 360),
+      },
+    };
+  }
+
+  private normalizeApplySceneItemTransformResult(
+    raw: unknown,
+    fallback: ApplySceneItemTransformInput,
+  ): ApplySceneItemTransformResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_TRANSFORM_COMMAND_FAILED", "Invalid transform response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = raw.sourceName;
+    const transformRaw = isRecord(raw.transform) ? raw.transform : {};
+
+    const positionX = Number(transformRaw.positionX);
+    const positionY = Number(transformRaw.positionY);
+    const scaleX = Number(transformRaw.scaleX);
+    const scaleY = Number(transformRaw.scaleY);
+    const rotation = Number(transformRaw.rotation);
+    const width = transformRaw.width === undefined || transformRaw.width === null ? undefined : Number(transformRaw.width);
+    const height = transformRaw.height === undefined || transformRaw.height === null ? undefined : Number(transformRaw.height);
+
+    const output: ApplySceneItemTransformResult = {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isFinite(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: typeof sourceNameRaw === "string" ? (sourceNameRaw.trim() || null) : null,
+      transform: {
+        positionX: Number.isFinite(positionX) ? positionX : fallback.transform.positionX,
+        positionY: Number.isFinite(positionY) ? positionY : fallback.transform.positionY,
+        scaleX: Number.isFinite(scaleX) ? scaleX : fallback.transform.scaleX,
+        scaleY: Number.isFinite(scaleY) ? scaleY : fallback.transform.scaleY,
+        rotation: Number.isFinite(rotation) ? rotation : (fallback.transform.rotation ?? 0),
+      },
+    };
+
+    if (width !== undefined && Number.isFinite(width)) {
+      output.transform.width = width;
+    }
+    if (height !== undefined && Number.isFinite(height)) {
+      output.transform.height = height;
+    }
+
+    return output;
   }
 
   private normalizeSceneItemsListResult(raw: unknown, requestedSceneName: string): SceneItemsListResult {

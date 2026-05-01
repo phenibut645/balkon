@@ -48,6 +48,21 @@ function parseInteger(value: unknown): number | null {
   return null;
 }
 
+function parseFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
 function parseOptionalText(value: unknown): string | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -466,6 +481,114 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       return serviceErrorResponse(
         "STREAMER_STUDIO_LOAD_FAILED",
         "Failed to load OBS scene items.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.patch("/streamer-studio/:streamerId/control/scene-item/transform", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const sceneItemId = parsePositiveInteger(body.sceneItemId);
+    const sourceNameRaw = body.sourceName;
+    const transform = body.transform;
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!sceneItemId) {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "sceneItemId must be a positive integer.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    if (!transform || typeof transform !== "object" || Array.isArray(transform)) {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "transform must be an object.",
+      };
+    }
+
+    const transformRecord = transform as Record<string, unknown>;
+    const positionX = parseFiniteNumber(transformRecord.positionX);
+    const positionY = parseFiniteNumber(transformRecord.positionY);
+    const scaleX = parseFiniteNumber(transformRecord.scaleX);
+    const scaleY = parseFiniteNumber(transformRecord.scaleY);
+    const rotation = transformRecord.rotation === undefined ? 0 : parseFiniteNumber(transformRecord.rotation);
+
+    if (positionX === null || positionY === null || scaleX === null || scaleY === null || rotation === null) {
+      return {
+        ok: false,
+        error: "OBS_TRANSFORM_INVALID",
+        message: "transform fields must be finite numbers.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.applySceneItemTransform(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sceneItemId,
+          sourceName: sourceName ?? null,
+          transform: {
+            positionX,
+            positionY,
+            scaleX,
+            scaleY,
+            rotation,
+          },
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to apply OBS scene item transform.",
         error instanceof Error ? error : undefined,
       );
     }
