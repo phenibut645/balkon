@@ -70,6 +70,12 @@ export async function syncDiscordClientWithDatabase(client: Client): Promise<Dat
     }
     });
 
+    try {
+        await metadataService.backfillKnownMemberProfiles(client);
+    } catch (error) {
+        console.warn("Discord member profile backfill failed during startup sync", error);
+    }
+
     return {
         success: true
     }

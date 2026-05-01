@@ -5,6 +5,7 @@ import { NotificationService, NotificationSeverity } from "../../core/Notificati
 import { ShopObsService } from "../../core/ShopObsService.js";
 import { ObsMediaActionService, ObsMediaActionStatus } from "../../core/ObsMediaActionService.js";
 import { OverviewService } from "../../core/OverviewService.js";
+import { GuildDashboardService } from "../../core/GuildDashboardService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats } from "../../core/BotAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -100,6 +101,15 @@ function parseOptionalHomeGuildId(value: unknown): string | null | undefined {
   return normalized;
 }
 
+function parseGuildId(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return /^\d{1,32}$/.test(normalized) ? normalized : null;
+}
+
 function parseOptionalBoolean(value: unknown): boolean | undefined {
   if (value === undefined) {
     return undefined;
@@ -172,6 +182,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   const notificationService = NotificationService.getInstance();
   const shopObsService = ShopObsService.getInstance();
   const obsMediaActionService = ObsMediaActionService.getInstance();
+  const guildDashboardService = GuildDashboardService.getInstance();
 
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
@@ -197,6 +208,56 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       return serviceErrorResponse(
         "OVERVIEW_LOAD_FAILED",
         "Failed to load overview.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/guilds/me", { preHandler: requireAuth }, async request => {
+    try {
+      const guilds = await guildDashboardService.listCurrentUserGuilds(request.authUser!.discordId);
+
+      return {
+        ok: true,
+        guilds,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "GUILDS_LOAD_FAILED",
+        "Failed to load guilds.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/guilds/:guildId/overview", { preHandler: requireAuth }, async request => {
+    const guildId = parseGuildId((request.params as { guildId?: string }).guildId);
+    if (!guildId) {
+      return {
+        ok: false,
+        error: "GUILD_NOT_FOUND",
+        message: "Guild not found.",
+      };
+    }
+
+    try {
+      const guild = await guildDashboardService.getGuildOverview(request.authUser!.discordId, guildId);
+      if (!guild) {
+        return {
+          ok: false,
+          error: "GUILD_NOT_FOUND",
+          message: "Guild not found.",
+        };
+      }
+
+      return {
+        ok: true,
+        guild,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "GUILDS_LOAD_FAILED",
+        "Failed to load guild overview.",
         error instanceof Error ? error : undefined,
       );
     }

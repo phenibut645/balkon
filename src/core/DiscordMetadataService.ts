@@ -1,3 +1,5 @@
+import { Client } from "discord.js";
+import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 
 export type UpsertMemberDiscordProfileInput = {
@@ -13,6 +15,12 @@ export type UpsertGuildDiscordMetadataInput = {
   displayName?: string | null;
   iconUrl?: string | null;
 };
+
+type MissingMemberProfileRow = RowDataPacket & {
+  ds_member_id: string;
+};
+
+const MEMBER_PROFILE_BACKFILL_LIMIT = 100;
 
 export class DiscordMetadataService {
   private static instance: DiscordMetadataService;
@@ -67,5 +75,53 @@ export class DiscordMetadataService {
         input.iconUrl ?? null,
       ],
     );
+  }
+
+  async backfillKnownMemberProfiles(client: Client): Promise<{ attempted: number; updated: number; failed: number }> {
+    const [rows] = await pool.query<MissingMemberProfileRow[]>(
+      `SELECT ds_member_id
+       FROM members
+       WHERE discord_username IS NULL
+          OR discord_global_name IS NULL
+          OR discord_avatar_url IS NULL
+          OR discord_profile_updated_at IS NULL
+       ORDER BY discord_profile_updated_at ASC, id ASC
+       LIMIT ?`,
+      [MEMBER_PROFILE_BACKFILL_LIMIT],
+    );
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      const discordId = String(row.ds_member_id);
+
+      try {
+        const user = await client.users.fetch(discordId);
+        await this.upsertMemberDiscordProfile({
+          discordId,
+          username: user.username,
+          globalName: user.globalName ?? null,
+          avatar: user.avatar ?? null,
+          avatarUrl: user.displayAvatarURL({ size: 128 }) ?? null,
+        });
+        updated += 1;
+      } catch (error) {
+        failed += 1;
+        console.warn(`Failed to backfill Discord profile for member ${discordId}`, error);
+      }
+    }
+
+    const summary = {
+      attempted: rows.length,
+      updated,
+      failed,
+    };
+
+    console.log(
+      `Discord member profile backfill summary: attempted=${summary.attempted}, updated=${summary.updated}, failed=${summary.failed}`,
+    );
+
+    return summary;
   }
 }
