@@ -141,6 +141,8 @@ export class StreamerService {
                     await pool.query(`UPDATE guild_streamers SET is_primary = TRUE WHERE id = ?`, [existingGuildBinding.guildStreamerId]);
                 }
 
+                await this.ensureStreamerOwner(streamerId, creator.data.id);
+
                 return {
                     success: true,
                     data: {
@@ -167,6 +169,8 @@ export class StreamerService {
             if (DataBaseHandler.isFail(insertBinding)) {
                 return insertBinding;
             }
+
+            await this.ensureStreamerOwner(streamerId, creator.data.id);
 
             return {
                 success: true,
@@ -1022,6 +1026,15 @@ export class StreamerService {
         );
 
         return rows[0]?.setting_value ? String(rows[0].setting_value) : null;
+    }
+
+    private async ensureStreamerOwner(streamerId: number, memberId: number): Promise<void> {
+        await pool.query(
+            `INSERT INTO streamer_owners (streamer_id, member_id, role)
+             VALUES (?, ?, 'owner')
+             ON DUPLICATE KEY UPDATE role = role`,
+            [streamerId, memberId]
+        );
     }
 
     private async upsertBotSetting(settingKey: string, settingValue: string | null, updatedByMemberId: number) {
