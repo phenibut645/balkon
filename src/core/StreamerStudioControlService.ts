@@ -212,6 +212,40 @@ type CreateBrowserSourceResult = {
   }>;
 };
 
+type UpdateTextSourceInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+  text: string;
+};
+
+type UpdateTextSourceResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string;
+  inputKind: string | null;
+  text: string;
+};
+
+type UpdateBrowserSourceInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+  url?: string;
+  width?: number;
+  height?: number;
+};
+
+type UpdateBrowserSourceResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string;
+  inputKind: string;
+  url?: string;
+  width?: number;
+  height?: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -466,6 +500,70 @@ export class StreamerStudioControlService {
     );
 
     return this.normalizeCreateBrowserSourceResult(data, normalizedInput);
+  }
+
+  async updateTextSource(
+    discordId: string,
+    streamerId: number,
+    input: UpdateTextSourceInput,
+  ): Promise<UpdateTextSourceResult> {
+    const normalizedInput = this.normalizeUpdateTextSourceInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName,
+      text: normalizedInput.text,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.source.text.update",
+      payload,
+      "OBS_TEXT_SOURCE_UPDATE_COMMAND_FAILED",
+      "OBS text source update command failed.",
+    );
+
+    return this.normalizeUpdateTextSourceResult(data, normalizedInput);
+  }
+
+  async updateBrowserSource(
+    discordId: string,
+    streamerId: number,
+    input: UpdateBrowserSourceInput,
+  ): Promise<UpdateBrowserSourceResult> {
+    const normalizedInput = this.normalizeUpdateBrowserSourceInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName,
+      url: normalizedInput.url ?? undefined,
+      width: normalizedInput.width ?? undefined,
+      height: normalizedInput.height ?? undefined,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.source.browser.update",
+      payload,
+      "OBS_BROWSER_SOURCE_UPDATE_COMMAND_FAILED",
+      "OBS browser source update command failed.",
+    );
+
+    return this.normalizeUpdateBrowserSourceResult(data, normalizedInput);
   }
 
   isControlError(error: unknown): error is { code: string; message: string } {
@@ -734,6 +832,100 @@ export class StreamerStudioControlService {
       sceneName,
       sceneItemId: input.sceneItemId,
       sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : (sourceName ?? null),
+    };
+  }
+
+  private normalizeUpdateTextSourceInput(
+    input: UpdateTextSourceInput,
+  ): UpdateTextSourceInput & { sourceName: string | null } {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    const sourceNameRaw = input.sourceName;
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_INVALID", "sourceName must be a string or null.");
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw ?? null;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!text.length || text.length > 500) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_INVALID", "text must be a non-empty string up to 500 chars.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName,
+      text,
+    };
+  }
+
+  private normalizeUpdateBrowserSourceInput(
+    input: UpdateBrowserSourceInput,
+  ): UpdateBrowserSourceInput & { sourceName: string | null } {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    const sourceNameRaw = input.sourceName;
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "sourceName must be a string or null.");
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw ?? null;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    const urlRaw = input.url;
+    let url: string | undefined;
+    if (urlRaw !== undefined) {
+      if (urlRaw === null || typeof urlRaw !== "string") {
+        throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "url must be a string.");
+      }
+      const trimmed = urlRaw.trim();
+      if (!trimmed.length || trimmed.length > 1000 || !/^https?:\/\//i.test(trimmed)) {
+        throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "url must be a valid http:// or https:// URL up to 1000 chars.");
+      }
+      url = trimmed;
+    }
+
+    const width = input.width === undefined ? undefined : Number(input.width);
+    if (width !== undefined && !Number.isFinite(width)) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "width must be a finite number.");
+    }
+
+    const height = input.height === undefined ? undefined : Number(input.height);
+    if (height !== undefined && !Number.isFinite(height)) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "height must be a finite number.");
+    }
+
+    if (url === undefined && width === undefined && height === undefined) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_INVALID", "At least one of url, width, or height must be provided.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName,
+      url,
+      width: width === undefined ? undefined : clampNumber(Math.round(width), 64, 3840),
+      height: height === undefined ? undefined : clampNumber(Math.round(height), 64, 2160),
     };
   }
 
@@ -1010,6 +1202,65 @@ export class StreamerStudioControlService {
     }
 
     return output;
+  }
+
+  private normalizeUpdateTextSourceResult(raw: unknown, fallback: UpdateTextSourceInput & { sourceName: string | null }): UpdateTextSourceResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_COMMAND_FAILED", "Invalid text source update response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = typeof raw.sourceName === "string" ? raw.sourceName.trim() : fallback.sourceName ?? "";
+    const inputKindRaw = raw.inputKind;
+    const textRaw = typeof raw.text === "string" ? raw.text : fallback.text;
+
+    if (!sourceNameRaw.length) {
+      throw new StreamerStudioControlError("OBS_TEXT_SOURCE_UPDATE_COMMAND_FAILED", "Text source update response is missing sourceName.");
+    }
+
+    return {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: sourceNameRaw,
+      inputKind: typeof inputKindRaw === "string" ? inputKindRaw.trim() || null : null,
+      text: textRaw,
+    };
+  }
+
+  private normalizeUpdateBrowserSourceResult(raw: unknown, fallback: UpdateBrowserSourceInput & { sourceName: string | null }): UpdateBrowserSourceResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_COMMAND_FAILED", "Invalid browser source update response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = typeof raw.sourceName === "string" ? raw.sourceName.trim() : fallback.sourceName ?? "";
+    const inputKindRaw = typeof raw.inputKind === "string" ? raw.inputKind.trim() : "";
+    const urlRaw = typeof raw.url === "string" ? raw.url.trim() : fallback.url;
+    const widthRaw = raw.width;
+    const heightRaw = raw.height;
+
+    if (!sourceNameRaw.length) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_COMMAND_FAILED", "Browser source update response is missing sourceName.");
+    }
+
+    if (!inputKindRaw.length) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_UPDATE_COMMAND_FAILED", "Browser source update response is missing inputKind.");
+    }
+
+    const width = typeof widthRaw === "number" && Number.isFinite(widthRaw) ? widthRaw : fallback.width;
+    const height = typeof heightRaw === "number" && Number.isFinite(heightRaw) ? heightRaw : fallback.height;
+
+    return {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: sourceNameRaw,
+      inputKind: inputKindRaw,
+      url: urlRaw,
+      width,
+      height,
+    };
   }
 
   private normalizeCreateTextSourceResult(raw: unknown, fallback: Required<CreateTextSourceInput>): CreateTextSourceResult {

@@ -240,6 +240,222 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
+  app.patch("/streamer-studio/:streamerId/control/source/text", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_UPDATE_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const sceneItemId = parsePositiveInteger(body.sceneItemId);
+    const sourceNameRaw = body.sourceName;
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_UPDATE_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!sceneItemId) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_UPDATE_INVALID",
+        message: "sceneItemId must be a positive integer.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_UPDATE_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_UPDATE_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    if (!text.length || text.length > 500) {
+      return {
+        ok: false,
+        error: "OBS_TEXT_SOURCE_UPDATE_INVALID",
+        message: "text must be a non-empty string up to 500 chars.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.updateTextSource(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sceneItemId,
+          sourceName: sourceName ?? null,
+          text,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to update OBS text source.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.patch("/streamer-studio/:streamerId/control/source/browser", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const sceneItemId = parsePositiveInteger(body.sceneItemId);
+    const sourceNameRaw = body.sourceName;
+    const urlRaw = body.url;
+    const widthRaw = body.width;
+    const heightRaw = body.height;
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!sceneItemId) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "sceneItemId must be a positive integer.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    let url: string | undefined;
+    if (urlRaw !== undefined) {
+      if (urlRaw === null || typeof urlRaw !== "string") {
+        return {
+          ok: false,
+          error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+          message: "url must be a string when provided.",
+        };
+      }
+      const trimmed = urlRaw.trim();
+      if (!trimmed.length || trimmed.length > 1000 || !/^https?:\/\//i.test(trimmed)) {
+        return {
+          ok: false,
+          error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+          message: "url must be a valid http:// or https:// URL up to 1000 chars.",
+        };
+      }
+      url = trimmed;
+    }
+
+    const width = widthRaw === undefined ? undefined : parseFiniteNumber(widthRaw);
+    if (width === null) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "width must be a finite number.",
+      };
+    }
+
+    const height = heightRaw === undefined ? undefined : parseFiniteNumber(heightRaw);
+    if (height === null) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "height must be a finite number.",
+      };
+    }
+
+    if (url === undefined && width === undefined && height === undefined) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_UPDATE_INVALID",
+        message: "At least one of url, width, or height must be provided.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.updateBrowserSource(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sceneItemId,
+          sourceName: sourceName ?? null,
+          url,
+          width,
+          height,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to update OBS browser source.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.patch("/streamer-studio/:streamerId/control/scene-item/visibility", { preHandler: requireAuth }, async request => {
     const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
     if (!streamerId) {
