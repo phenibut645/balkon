@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { isBotAdmin } from "../../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../../core/StreamerAccessService.js";
+import { streamerService } from "../../../core/StreamerService.js";
 import { StreamerStudioControlService } from "../../../core/StreamerStudioControlService.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
 
@@ -65,6 +66,14 @@ export async function registerStreamerStudioRoutes(app: FastifyInstance): Promis
   const streamerAccessService = StreamerAccessService.getInstance();
   const streamerStudioControlService = StreamerStudioControlService.getInstance();
 
+  const ensureStreamerManageAccess = async (discordId: string, streamerId: number) => {
+    await streamerService.ensureStreamerExistsById(streamerId);
+    const canManage = await streamerAccessService.canManageStreamer(discordId, streamerId);
+    if (!canManage) {
+      throw Object.assign(new Error("You do not have access to manage this streamer."), { code: "STREAMER_STUDIO_FORBIDDEN" });
+    }
+  };
+
   app.get("/streamer-studio/me", { preHandler: requireAuth }, async request => {
     try {
       const discordId = request.authUser!.discordId;
@@ -83,6 +92,246 @@ export async function registerStreamerStudioRoutes(app: FastifyInstance): Promis
       return serviceErrorResponse(
         "STREAMER_STUDIO_LOAD_FAILED",
         "Failed to load streamer studio access.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/streamer-studio/:streamerId/agent/setup", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      await ensureStreamerManageAccess(request.authUser!.discordId, streamerId);
+      const response = await streamerService.getStreamerObsAgentSetupByStreamerId(streamerId);
+      if (!response.success) {
+        return serviceErrorResponse(
+          "STREAMER_STUDIO_AGENT_SETUP_FAILED",
+          response.error.message ?? "Failed to load OBS agent setup.",
+          response.error,
+        );
+      }
+
+      return {
+        ok: true,
+        data: response.data,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_AGENT_SETUP_FAILED",
+        "Failed to load OBS agent setup.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/agent/provision", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const agentIdRaw = body.agentId;
+    if (agentIdRaw !== undefined && agentIdRaw !== null && typeof agentIdRaw !== "string") {
+      return {
+        ok: false,
+        error: "STREAMER_STUDIO_AGENT_INVALID",
+        message: "agentId must be a string or null when provided.",
+      };
+    }
+
+    const agentId = typeof agentIdRaw === "string" ? agentIdRaw.trim() : null;
+
+    try {
+      await ensureStreamerManageAccess(request.authUser!.discordId, streamerId);
+      const response = await streamerService.provisionStreamerObsAgentByStreamerId({
+        streamerId,
+        updatedByDiscordId: request.authUser!.discordId,
+        agentId,
+      });
+
+      if (!response.success) {
+        return serviceErrorResponse(
+          "STREAMER_STUDIO_AGENT_PROVISION_FAILED",
+          response.error.message ?? "Failed to provision OBS agent credentials.",
+          response.error,
+        );
+      }
+
+      return {
+        ok: true,
+        data: {
+          streamerId: response.data.streamerId,
+          agentId: response.data.agentId,
+          agentToken: response.data.agentToken,
+          tokenShownOnce: true,
+        },
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_AGENT_PROVISION_FAILED",
+        "Failed to provision OBS agent credentials.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/agent/bind", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
+    const agentToken = typeof body.agentToken === "string" ? body.agentToken.trim() : "";
+
+    if (!agentId.length || !agentToken.length) {
+      return {
+        ok: false,
+        error: "STREAMER_STUDIO_AGENT_INVALID",
+        message: "agentId and agentToken are required.",
+      };
+    }
+
+    try {
+      await ensureStreamerManageAccess(request.authUser!.discordId, streamerId);
+      const response = await streamerService.setStreamerObsAgentByStreamerId({
+        streamerId,
+        agentId,
+        agentToken,
+        updatedByDiscordId: request.authUser!.discordId,
+      });
+
+      if (!response.success) {
+        return serviceErrorResponse(
+          "STREAMER_STUDIO_AGENT_BIND_FAILED",
+          response.error.message ?? "Failed to bind OBS agent.",
+          response.error,
+        );
+      }
+
+      return {
+        ok: true,
+        data: response.data,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_AGENT_BIND_FAILED",
+        "Failed to bind OBS agent.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.delete("/streamer-studio/:streamerId/agent", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      await ensureStreamerManageAccess(request.authUser!.discordId, streamerId);
+      const response = await streamerService.clearStreamerObsAgentByStreamerId(streamerId);
+      if (!response.success) {
+        return serviceErrorResponse(
+          "STREAMER_STUDIO_AGENT_CLEAR_FAILED",
+          response.error.message ?? "Failed to clear OBS agent binding.",
+          response.error,
+        );
+      }
+
+      return {
+        ok: true,
+        data: response.data,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_AGENT_CLEAR_FAILED",
+        "Failed to clear OBS agent binding.",
         error instanceof Error ? error : undefined,
       );
     }

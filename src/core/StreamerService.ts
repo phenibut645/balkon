@@ -7,6 +7,7 @@ import { ObsMediaAction } from "./ObsService.js";
 import { GuildStreamersDB, GuildsDB, ItemServiceActionType, ItemServiceActionsDB, MembersDB, StreamersDB } from "../types/database.types.js";
 import { itemService } from "./ItemService.js";
 import { obsRelayService } from "./ObsRelayService.js";
+import { obsAgentStatusService } from "./ObsAgentStatusService.js";
 import { ObsRelayCommandName, ObsRelayGetStatusResult, ObsRelayMediaActionPayload, ObsRelaySceneItem, ObsRelaySetSourceVisibilityPayload, ObsRelaySetTextInputPayload } from "../types/obs-agent.types.js";
 
 interface GuildStreamerRow extends RowDataPacket {
@@ -17,6 +18,12 @@ interface GuildStreamerRow extends RowDataPacket {
     nickname: string;
     twitch_url: string;
     is_primary: number;
+}
+
+interface StreamerRow extends RowDataPacket {
+    id: number;
+    nickname: string;
+    twitch_url: string;
 }
 
 interface ItemServiceActionRow extends RowDataPacket {
@@ -64,6 +71,29 @@ export interface StreamerObsAgentProvisioningView {
     streamerId: number;
     agentId: string;
     agentToken: string;
+}
+
+export interface StreamerObsAgentSetupView {
+    streamerId: number;
+    configured: boolean;
+    agentId: string | null;
+    tokenPresent: boolean;
+    online: boolean;
+    lastSeenAt: string | null;
+    agentVersion: string | null;
+    relayProtocolVersion: number | null;
+    capabilities: string[];
+    obsConnected: boolean | null;
+    obsVersion: string | null;
+    obsWebsocketVersion: string | null;
+    relayUrl: string | null;
+}
+
+export interface StreamerObsAgentBindingView {
+    streamerId: number;
+    agentId: string;
+    configured: true;
+    tokenPresent: true;
 }
 
 export interface PrimaryGuildStreamerAgentView {
@@ -372,6 +402,127 @@ export class StreamerService {
                     agentId: config.agentId,
                     tokenMask: "*".repeat(Math.min(Math.max(config.agentToken.length, 1), 12)),
                     online: obsRelayService.isAgentConnected(config.agentId),
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async ensureStreamerExistsById(streamerId: number): Promise<void> {
+        await this.requireStreamerById(streamerId);
+    }
+
+    async getStreamerObsAgentSetupByStreamerId(streamerId: number): Promise<DBResponse<StreamerObsAgentSetupView>> {
+        try {
+            await this.requireStreamerById(streamerId);
+            const binding = await this.getStreamerAgentBindingByStreamerId(streamerId);
+            const agentToken = binding?.agentId ? await this.readBotSetting(this.getAgentCredentialKey(binding.agentId)) : null;
+            const status = binding?.agentId ? await obsAgentStatusService.getStatus(binding.agentId) : null;
+
+            return {
+                success: true,
+                data: {
+                    streamerId,
+                    configured: Boolean(binding?.agentId),
+                    agentId: binding?.agentId ?? null,
+                    tokenPresent: Boolean(agentToken),
+                    online: status?.online ?? (binding?.agentId ? obsRelayService.isAgentConnected(binding.agentId) : false),
+                    lastSeenAt: status?.lastSeenAt ?? null,
+                    agentVersion: status?.agentVersion ?? null,
+                    relayProtocolVersion: status?.relayProtocolVersion ?? null,
+                    capabilities: status?.capabilities ?? [],
+                    obsConnected: status?.obsConnected ?? null,
+                    obsVersion: status?.obsVersion ?? null,
+                    obsWebsocketVersion: status?.websocketVersion ?? null,
+                    relayUrl: null,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async provisionStreamerObsAgentByStreamerId(input: {
+        streamerId: number;
+        updatedByDiscordId: string;
+        agentId?: string | null;
+    }): Promise<DBResponse<StreamerObsAgentProvisioningView>> {
+        try {
+            const streamer = await this.requireStreamerById(input.streamerId);
+            const updater = await this.ensureMemberByDiscordId(input.updatedByDiscordId);
+            const normalizedAgentId = this.normalizeAgentId(input.agentId, streamer.nickname);
+            const agentToken = crypto.randomBytes(24).toString("hex");
+            const currentConfig = await this.getStreamerObsAgentByStreamerId(streamer.id);
+
+            if (currentConfig?.agentId && currentConfig.agentId !== normalizedAgentId) {
+                await pool.query(`DELETE FROM bot_settings WHERE setting_key = ?`, [this.getAgentCredentialKey(currentConfig.agentId)]);
+            }
+
+            await this.upsertBotSetting(this.getStreamerAgentBindingKey(streamer.id), JSON.stringify({ agentId: normalizedAgentId }), updater.data.id);
+            await this.upsertBotSetting(this.getAgentCredentialKey(normalizedAgentId), agentToken, updater.data.id);
+
+            return {
+                success: true,
+                data: {
+                    streamerId: streamer.id,
+                    agentId: normalizedAgentId,
+                    agentToken,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async setStreamerObsAgentByStreamerId(input: {
+        streamerId: number;
+        agentId: string;
+        agentToken: string;
+        updatedByDiscordId: string;
+    }): Promise<DBResponse<StreamerObsAgentBindingView>> {
+        try {
+            const streamer = await this.requireStreamerById(input.streamerId);
+            const updater = await this.ensureMemberByDiscordId(input.updatedByDiscordId);
+            const normalizedAgentToken = input.agentToken.trim();
+            if (!normalizedAgentToken.length) {
+                throw new Error("Agent token is required.");
+            }
+
+            const normalizedAgentId = this.normalizeAgentId(input.agentId, streamer.nickname);
+
+            await this.upsertBotSetting(this.getStreamerAgentBindingKey(streamer.id), JSON.stringify({ agentId: normalizedAgentId }), updater.data.id);
+            await this.upsertBotSetting(this.getAgentCredentialKey(normalizedAgentId), normalizedAgentToken, updater.data.id);
+
+            return {
+                success: true,
+                data: {
+                    streamerId: streamer.id,
+                    agentId: normalizedAgentId,
+                    configured: true,
+                    tokenPresent: true,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
+    }
+
+    async clearStreamerObsAgentByStreamerId(streamerId: number): Promise<DBResponse<{ streamerId: number; cleared: true }>> {
+        try {
+            await this.requireStreamerById(streamerId);
+            const binding = await this.getStreamerAgentBindingByStreamerId(streamerId);
+            await pool.query(`DELETE FROM bot_settings WHERE setting_key = ?`, [this.getStreamerAgentBindingKey(streamerId)]);
+
+            if (binding?.agentId) {
+                await pool.query(`DELETE FROM bot_settings WHERE setting_key = ?`, [this.getAgentCredentialKey(binding.agentId)]);
+            }
+
+            return {
+                success: true,
+                data: {
+                    streamerId,
+                    cleared: true,
                 },
             };
         } catch (error) {
@@ -823,6 +974,19 @@ export class StreamerService {
         return listResponse.data.find(streamer => streamer.isPrimary) ?? listResponse.data[0];
     }
 
+    private async requireStreamerById(streamerId: number): Promise<StreamerRow> {
+        const [rows] = await pool.query<StreamerRow[]>(
+            `SELECT id, nickname, twitch_url FROM streamers WHERE id = ? LIMIT 1`,
+            [streamerId]
+        );
+
+        if (!rows.length) {
+            throw Object.assign(new Error("Streamer not found."), { code: "STREAMER_NOT_FOUND" });
+        }
+
+        return rows[0];
+    }
+
     private async ensureGuildByDiscordId(discordGuildId: string): Promise<DBResponseSuccess<GuildsDB>> {
         const existingGuild = await DataBaseHandler.getInstance().getFromTable<GuildsDB>("guilds", { ds_guild_id: discordGuildId });
         if (DataBaseHandler.isSuccess(existingGuild) && existingGuild.data.length) {
@@ -961,24 +1125,38 @@ export class StreamerService {
         };
     }
 
-    private async getStreamerObsAgentByStreamerId(streamerId: number): Promise<{ agentId: string; agentToken: string } | null> {
+    private async getStreamerAgentBindingByStreamerId(streamerId: number): Promise<{ agentId: string } | null> {
         const bindingValue = await this.readBotSetting(this.getStreamerAgentBindingKey(streamerId));
         if (!bindingValue) {
             return null;
         }
 
-        const parsedBinding = JSON.parse(bindingValue) as { agentId?: string };
-        if (!parsedBinding.agentId) {
+        try {
+            const parsedBinding = JSON.parse(bindingValue) as { agentId?: string };
+            const agentId = typeof parsedBinding.agentId === "string" ? parsedBinding.agentId.trim() : "";
+            if (!agentId.length) {
+                return null;
+            }
+
+            return { agentId };
+        } catch {
+            return null;
+        }
+    }
+
+    private async getStreamerObsAgentByStreamerId(streamerId: number): Promise<{ agentId: string; agentToken: string } | null> {
+        const binding = await this.getStreamerAgentBindingByStreamerId(streamerId);
+        if (!binding) {
             return null;
         }
 
-        const agentToken = await this.readBotSetting(this.getAgentCredentialKey(parsedBinding.agentId));
+        const agentToken = await this.readBotSetting(this.getAgentCredentialKey(binding.agentId));
         if (!agentToken) {
             return null;
         }
 
         return {
-            agentId: parsedBinding.agentId,
+            agentId: binding.agentId,
             agentToken,
         };
     }
