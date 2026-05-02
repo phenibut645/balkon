@@ -1,288 +1,48 @@
-import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { getBotCommandQueue } from "./BotCommandQueue.js";
 import { StreamerAccessService } from "./StreamerAccessService.js";
 import { ObsAgentStatusService, ObsAgentStatusView } from "./ObsAgentStatusService.js";
 import { ObsRelayCommandName } from "../types/obs-agent.types.js";
-
-const OBS_AGENT_BINDING_PREFIX = "obs_agent_binding:";
-const OBS_AGENT_STALE_MS = 120_000;
-const OBS_COMMAND_TIMEOUT_MS = 20_000;
-const OBS_COMMAND_POLL_MS = 400;
+import {
+  ApplySceneItemTransformInput,
+  ApplySceneItemTransformResult,
+  BotCommandStatusRow,
+  BotSettingRow,
+  CreateBrowserSourceInput,
+  CreateBrowserSourceResult,
+  CreateTextSourceInput,
+  CreateTextSourceResult,
+  GetSourceSettingsInput,
+  GetSourceSettingsResult,
+  RemoveSceneItemInput,
+  RemoveSceneItemResult,
+  SceneItemsListResult,
+  ScenesListResult,
+  SetSceneItemIndexInput,
+  SetSceneItemIndexResult,
+  SetSceneItemVisibilityInput,
+  SetSceneItemVisibilityResult,
+  StreamerRow,
+  UpdateBrowserSourceInput,
+  UpdateBrowserSourceResult,
+  UpdateTextSourceInput,
+  UpdateTextSourceResult,
+} from "./streamer-studio/controlTypes.js";
+import {
+  clampNumber,
+  isRecord,
+  OBS_AGENT_BINDING_PREFIX,
+  OBS_AGENT_STALE_MS,
+  OBS_COMMAND_POLL_MS,
+  OBS_COMMAND_TIMEOUT_MS,
+  safeJsonObjectParse,
+} from "./streamer-studio/controlUtils.js";
 
 class StreamerStudioControlError extends Error {
   constructor(public readonly code: string, message: string) {
     super(message);
     this.name = "StreamerStudioControlError";
   }
-}
-
-interface StreamerRow extends RowDataPacket {
-  id: number;
-}
-
-interface BotSettingRow extends RowDataPacket {
-  setting_key: string;
-  setting_value: string | null;
-}
-
-interface BotCommandStatusRow extends RowDataPacket {
-  id: number;
-  status: "pending" | "processing" | "completed" | "failed";
-  result_json: string | null;
-  error_message: string | null;
-}
-
-type ScenesListResult = {
-  scenes: Array<{ name: string }>;
-  currentProgramSceneName: string | null;
-};
-
-type SceneItemsListResult = {
-  sceneName: string;
-  items: Array<{
-    sceneItemId: number;
-    sourceName: string;
-    inputKind: string | null;
-    enabled: boolean;
-    transform: {
-      positionX: number;
-      positionY: number;
-      scaleX: number;
-      scaleY: number;
-      rotation: number;
-      width?: number;
-      height?: number;
-    };
-  }>;
-};
-
-type ApplySceneItemTransformInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-  transform: {
-    positionX: number;
-    positionY: number;
-    scaleX: number;
-    scaleY: number;
-    rotation?: number;
-  };
-};
-
-type ApplySceneItemTransformResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string | null;
-  transform: {
-    positionX: number;
-    positionY: number;
-    scaleX: number;
-    scaleY: number;
-    rotation: number;
-    width?: number;
-    height?: number;
-  };
-};
-
-type SetSceneItemIndexInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-  sceneItemIndex: number;
-};
-
-type SetSceneItemIndexResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string | null;
-  sceneItemIndex: number;
-  items: Array<{
-    sceneItemId: number;
-    sourceName: string;
-    sceneItemIndex: number;
-  }>;
-};
-
-type SetSceneItemVisibilityInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-  enabled: boolean;
-};
-
-type SetSceneItemVisibilityResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string | null;
-  enabled: boolean;
-  items: Array<{
-    sceneItemId: number;
-    sourceName: string;
-    sceneItemIndex: number;
-    enabled?: boolean;
-  }>;
-};
-
-type RemoveSceneItemInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-};
-
-type RemoveSceneItemResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string | null;
-  removed: true;
-  items: Array<{
-    sceneItemId: number;
-    sourceName: string;
-    sceneItemIndex: number;
-    enabled?: boolean;
-  }>;
-};
-
-type CreateTextSourceInput = {
-  sceneName: string;
-  sourceName?: string | null;
-  text: string;
-  positionX?: number;
-  positionY?: number;
-  scaleX?: number;
-  scaleY?: number;
-  rotation?: number;
-};
-
-type CreateTextSourceResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string;
-  inputKind: string;
-  transform: {
-    positionX: number;
-    positionY: number;
-    scaleX: number;
-    scaleY: number;
-    rotation: number;
-    width?: number;
-    height?: number;
-  };
-  items: Array<{
-    sceneItemId: number;
-    sourceName: string;
-    sceneItemIndex: number;
-  }>;
-};
-
-type CreateBrowserSourceInput = {
-  sceneName: string;
-  sourceName?: string | null;
-  url: string;
-  width?: number;
-  height?: number;
-  positionX?: number;
-  positionY?: number;
-  scaleX?: number;
-  scaleY?: number;
-  rotation?: number;
-};
-
-type CreateBrowserSourceResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string;
-  inputKind: "browser_source";
-  url: string;
-  width: number;
-  height: number;
-  transform: {
-    positionX: number;
-    positionY: number;
-    scaleX: number;
-    scaleY: number;
-    rotation: number;
-    width?: number;
-    height?: number;
-  };
-  items: Array<{
-    sceneItemId: number;
-    sourceName: string;
-    sceneItemIndex: number;
-  }>;
-};
-
-type UpdateTextSourceInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-  text: string;
-};
-
-type UpdateTextSourceResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string;
-  inputKind: string | null;
-  text: string;
-};
-
-type UpdateBrowserSourceInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-  url?: string;
-  width?: number;
-  height?: number;
-};
-
-type UpdateBrowserSourceResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string;
-  inputKind: string;
-  url?: string;
-  width?: number;
-  height?: number;
-};
-
-type GetSourceSettingsInput = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName?: string | null;
-};
-
-type GetSourceSettingsResult = {
-  sceneName: string;
-  sceneItemId: number;
-  sourceName: string;
-  inputKind: string | null;
-  settings: {
-    text?: string;
-    url?: string;
-    width?: number;
-    height?: number;
-  };
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeJsonObjectParse(jsonText: string | null): Record<string, unknown> | null {
-  if (!jsonText) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(jsonText);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 export class StreamerStudioControlService {
