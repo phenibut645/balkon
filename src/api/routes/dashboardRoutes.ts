@@ -195,6 +195,117 @@ function serviceErrorResponse(defaultCode: string, defaultMessage: string, error
   };
 }
 
+function parsePositivePrice(value: unknown): number | null {
+  const parsed = parseFiniteNumber(value);
+  if (parsed === null || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function itemMutationErrorResponse(
+  defaultCode: string,
+  defaultMessage: string,
+  error?: { reason?: string; relatedTo?: string; message?: string },
+) {
+  const message = error?.message || defaultMessage;
+
+  if (!error) {
+    return {
+      ok: false,
+      error: defaultCode,
+      message,
+    };
+  }
+
+  if (error.reason === "record_not_found" && error.relatedTo === "item_public_market") {
+    return {
+      ok: false,
+      error: "MARKET_LISTING_NOT_FOUND",
+      message,
+    };
+  }
+
+  if (error.reason === "record_not_found" && error.relatedTo === "member_items") {
+    return {
+      ok: false,
+      error: "INVENTORY_ITEM_NOT_FOUND",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "members" && message === "Not enough ODM balance.") {
+    return {
+      ok: false,
+      error: "NOT_ENOUGH_ODM",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "member_items" && message === "You do not own this item.") {
+    return {
+      ok: false,
+      error: "INVENTORY_ITEM_NOT_OWNED",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "items" && message === "This item is not tradeable.") {
+    return {
+      ok: false,
+      error: "ITEM_NOT_TRADEABLE",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "item_public_market" && message === "This item is already listed.") {
+    return {
+      ok: false,
+      error: "INVENTORY_ITEM_ALREADY_LISTED",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "item_public_market" && message === "You cannot buy your own listing.") {
+    return {
+      ok: false,
+      error: "CANNOT_BUY_OWN_LISTING",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "item_public_market" && message === "You can only update your own listing.") {
+    return {
+      ok: false,
+      error: "MARKET_LISTING_NOT_OWNED",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "item_public_market" && message === "You can only cancel your own listing.") {
+    return {
+      ok: false,
+      error: "MARKET_LISTING_NOT_OWNED",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "items" && message === "This item cannot be sold to the bot.") {
+    return {
+      ok: false,
+      error: "ITEM_NOT_SELLABLE_TO_BOT",
+      message,
+    };
+  }
+
+  return {
+    ok: false,
+    error: defaultCode,
+    message,
+  };
+}
+
 export async function registerDashboardRoutes(app: FastifyInstance): Promise<void> {
   const notificationService = NotificationService.getInstance();
   const shopObsService = ShopObsService.getInstance();
@@ -298,6 +409,68 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     };
   });
 
+  app.post("/inventory/:inventoryItemId/market-listing", { preHandler: requireAuth }, async request => {
+    const inventoryItemId = parsePositiveInteger((request.params as { inventoryItemId?: string }).inventoryItemId);
+    if (!inventoryItemId) {
+      return {
+        ok: false,
+        error: "INVALID_INVENTORY_ITEM_ID",
+        message: "inventoryItemId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as { price?: unknown };
+    const price = parsePositivePrice(body.price);
+    if (price === null) {
+      return {
+        ok: false,
+        error: "INVALID_MARKET_PRICE",
+        message: "price must be a positive finite number.",
+      };
+    }
+
+    const response = await ItemService.getInstance().createPublicListing(request.authUser!.discordId, inventoryItemId, price);
+    if (!response.success) {
+      return itemMutationErrorResponse("MARKET_LISTING_CREATE_FAILED", "Failed to create market listing.", response.error);
+    }
+
+    return {
+      ok: true,
+      data: {
+        listingId: response.data.listingId,
+        inventoryItemId,
+        price,
+      },
+    };
+  });
+
+  app.post("/inventory/:inventoryItemId/sell-to-bot", { preHandler: requireAuth }, async request => {
+    const inventoryItemId = parsePositiveInteger((request.params as { inventoryItemId?: string }).inventoryItemId);
+    if (!inventoryItemId) {
+      return {
+        ok: false,
+        error: "INVALID_INVENTORY_ITEM_ID",
+        message: "inventoryItemId must be a positive integer.",
+      };
+    }
+
+    const itemService = ItemService.getInstance();
+    const response = await itemService.sellInventoryItemToBot(request.authUser!.discordId, inventoryItemId);
+    if (!response.success) {
+      return itemMutationErrorResponse("INVENTORY_SELL_TO_BOT_FAILED", "Failed to sell inventory item to bot.", response.error);
+    }
+
+    const member = await itemService.ensureMemberByDiscordId(request.authUser!.discordId);
+    return {
+      ok: true,
+      data: {
+        inventoryItemId,
+        received: response.data.price,
+        balance: Number(member.data.balance),
+      },
+    };
+  });
+
   app.get("/market", { preHandler: requireAuth }, async () => {
     const response = await ItemService.getInstance().listPublicMarket();
     if (!response.success) {
@@ -310,6 +483,92 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     return {
       ok: true,
       listings: response.data,
+    };
+  });
+
+  app.post("/market/:listingId/buy", { preHandler: requireAuth }, async request => {
+    const listingId = parsePositiveInteger((request.params as { listingId?: string }).listingId);
+    if (!listingId) {
+      return {
+        ok: false,
+        error: "INVALID_LISTING_ID",
+        message: "listingId must be a positive integer.",
+      };
+    }
+
+    const itemService = ItemService.getInstance();
+    const response = await itemService.buyPublicListing(request.authUser!.discordId, listingId);
+    if (!response.success) {
+      return itemMutationErrorResponse("MARKET_PURCHASE_FAILED", "Failed to buy market listing.", response.error);
+    }
+
+    const member = await itemService.ensureMemberByDiscordId(request.authUser!.discordId);
+    return {
+      ok: true,
+      data: {
+        listingId,
+        inventoryItemId: response.data.inventoryItemId,
+        balance: Number(member.data.balance),
+      },
+    };
+  });
+
+  app.patch("/market/:listingId", { preHandler: requireAuth }, async request => {
+    const listingId = parsePositiveInteger((request.params as { listingId?: string }).listingId);
+    if (!listingId) {
+      return {
+        ok: false,
+        error: "INVALID_LISTING_ID",
+        message: "listingId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as { price?: unknown };
+    const price = parsePositivePrice(body.price);
+    if (price === null) {
+      return {
+        ok: false,
+        error: "INVALID_MARKET_PRICE",
+        message: "price must be a positive finite number.",
+      };
+    }
+
+    const response = await ItemService.getInstance().updatePublicListingPrice(request.authUser!.discordId, listingId, price);
+    if (!response.success) {
+      return itemMutationErrorResponse("MARKET_LISTING_UPDATE_FAILED", "Failed to update market listing.", response.error);
+    }
+
+    return {
+      ok: true,
+      data: {
+        listingId: response.data.listingId,
+        price: response.data.price,
+      },
+    };
+  });
+
+  app.delete("/market/:listingId", { preHandler: requireAuth }, async request => {
+    const listingId = parsePositiveInteger((request.params as { listingId?: string }).listingId);
+    if (!listingId) {
+      return {
+        ok: false,
+        error: "INVALID_LISTING_ID",
+        message: "listingId must be a positive integer.",
+      };
+    }
+
+    const response = await ItemService.getInstance().cancelPublicListing(request.authUser!.discordId, listingId);
+    if (!response.success) {
+      return itemMutationErrorResponse("MARKET_LISTING_CANCEL_FAILED", "Failed to cancel market listing.", response.error);
+    }
+
+    return {
+      ok: true,
+      data: {
+        listingId: response.data.listingId,
+        inventoryItemId: response.data.inventoryItemId,
+        cancelled: true,
+      },
     };
   });
 
