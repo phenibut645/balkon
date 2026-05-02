@@ -136,6 +136,43 @@ type CreateTextSourceResult = {
   }>;
 };
 
+type CreateBrowserSourceInput = {
+  sceneName: string;
+  sourceName?: string | null;
+  url: string;
+  width?: number;
+  height?: number;
+  positionX?: number;
+  positionY?: number;
+  scaleX?: number;
+  scaleY?: number;
+  rotation?: number;
+};
+
+type CreateBrowserSourceResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string;
+  inputKind: "browser_source";
+  url: string;
+  width: number;
+  height: number;
+  transform: {
+    positionX: number;
+    positionY: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+    width?: number;
+    height?: number;
+  };
+  items: Array<{
+    sceneItemId: number;
+    sourceName: string;
+    sceneItemIndex: number;
+  }>;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -292,6 +329,43 @@ export class StreamerStudioControlService {
     );
 
     return this.normalizeCreateTextSourceResult(data, normalizedInput);
+  }
+
+  async createBrowserSource(
+    discordId: string,
+    streamerId: number,
+    input: CreateBrowserSourceInput,
+  ): Promise<CreateBrowserSourceResult> {
+    const normalizedInput = this.normalizeCreateBrowserSourceInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sourceName: normalizedInput.sourceName ?? null,
+      url: normalizedInput.url,
+      width: normalizedInput.width,
+      height: normalizedInput.height,
+      positionX: normalizedInput.positionX,
+      positionY: normalizedInput.positionY,
+      scaleX: normalizedInput.scaleX,
+      scaleY: normalizedInput.scaleY,
+      rotation: normalizedInput.rotation,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.source.browser.create",
+      payload,
+      "OBS_BROWSER_SOURCE_COMMAND_FAILED",
+      "OBS browser source command failed.",
+    );
+
+    return this.normalizeCreateBrowserSourceResult(data, normalizedInput);
   }
 
   isControlError(error: unknown): error is { code: string; message: string } {
@@ -549,6 +623,54 @@ export class StreamerStudioControlService {
     };
   }
 
+  private normalizeCreateBrowserSourceInput(input: CreateBrowserSourceInput): Required<CreateBrowserSourceInput> {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    const url = typeof input.url === "string" ? input.url.trim() : "";
+    if (!url.length || url.length > 1000) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_INVALID", "url must be a non-empty string up to 1000 chars.");
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_INVALID", "url must be a valid http:// or https:// URL.");
+    }
+
+    const sourceName = input.sourceName;
+    if (sourceName !== undefined && sourceName !== null && typeof sourceName !== "string") {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_INVALID", "sourceName must be a string or null.");
+    }
+    if (typeof sourceName === "string" && sourceName.trim().length > 160) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    const width = input.width === undefined ? 800 : Number(input.width);
+    const height = input.height === undefined ? 450 : Number(input.height);
+    const positionX = input.positionX === undefined ? 100 : Number(input.positionX);
+    const positionY = input.positionY === undefined ? 100 : Number(input.positionY);
+    const scaleX = input.scaleX === undefined ? 1 : Number(input.scaleX);
+    const scaleY = input.scaleY === undefined ? 1 : Number(input.scaleY);
+    const rotation = input.rotation === undefined ? 0 : Number(input.rotation);
+
+    if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(positionX) || !Number.isFinite(positionY) || !Number.isFinite(scaleX) || !Number.isFinite(scaleY) || !Number.isFinite(rotation)) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_INVALID", "width, height, position, scale, and rotation fields must be finite numbers.");
+    }
+
+    return {
+      sceneName,
+      sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : null,
+      url,
+      width: clampNumber(Math.round(width), 64, 3840),
+      height: clampNumber(Math.round(height), 64, 2160),
+      positionX: clampNumber(positionX, -10_000, 10_000),
+      positionY: clampNumber(positionY, -10_000, 10_000),
+      scaleX: clampNumber(scaleX, 0.05, 10),
+      scaleY: clampNumber(scaleY, 0.05, 10),
+      rotation: clampNumber(rotation, -360, 360),
+    };
+  }
+
   private normalizeSetSceneItemIndexInput(input: SetSceneItemIndexInput): SetSceneItemIndexInput {
     const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
     if (!sceneName.length || sceneName.length > 160) {
@@ -709,6 +831,72 @@ export class StreamerStudioControlService {
     }
     if (height !== undefined && Number.isFinite(height)) {
       output.transform.height = height;
+    }
+
+    return output;
+  }
+
+  private normalizeCreateBrowserSourceResult(raw: unknown, fallback: Required<CreateBrowserSourceInput>): CreateBrowserSourceResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_COMMAND_FAILED", "Invalid browser source response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = typeof raw.sourceName === "string" ? raw.sourceName.trim() : "";
+    const inputKindRaw = typeof raw.inputKind === "string" ? raw.inputKind.trim() : "";
+    const urlRaw = typeof raw.url === "string" ? raw.url.trim() : "";
+    const widthRaw = Number(raw.width);
+    const heightRaw = Number(raw.height);
+    const transformRaw = isRecord(raw.transform) ? raw.transform : {};
+
+    const positionX = Number(transformRaw.positionX);
+    const positionY = Number(transformRaw.positionY);
+    const scaleX = Number(transformRaw.scaleX);
+    const scaleY = Number(transformRaw.scaleY);
+    const rotation = Number(transformRaw.rotation);
+    const transformWidth = transformRaw.width === undefined || transformRaw.width === null ? undefined : Number(transformRaw.width);
+    const transformHeight = transformRaw.height === undefined || transformRaw.height === null ? undefined : Number(transformRaw.height);
+    const itemsValue = raw.items;
+
+    const items = Array.isArray(itemsValue)
+      ? itemsValue
+        .filter(isRecord)
+        .map(item => ({
+          sceneItemId: Number(item.sceneItemId),
+          sourceName: typeof item.sourceName === "string" ? item.sourceName.trim() : "",
+          sceneItemIndex: Number(item.sceneItemIndex),
+        }))
+        .filter(item => Number.isInteger(item.sceneItemId) && item.sceneItemId > 0 && item.sourceName.length > 0 && Number.isInteger(item.sceneItemIndex) && item.sceneItemIndex >= 0)
+      : [];
+
+    const output: CreateBrowserSourceResult = {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : 0,
+      sourceName: sourceNameRaw || fallback.sourceName || "",
+      inputKind: (inputKindRaw || "browser_source") as "browser_source",
+      url: urlRaw || fallback.url,
+      width: Number.isFinite(widthRaw) ? widthRaw : fallback.width,
+      height: Number.isFinite(heightRaw) ? heightRaw : fallback.height,
+      transform: {
+        positionX: Number.isFinite(positionX) ? positionX : fallback.positionX,
+        positionY: Number.isFinite(positionY) ? positionY : fallback.positionY,
+        scaleX: Number.isFinite(scaleX) ? scaleX : fallback.scaleX,
+        scaleY: Number.isFinite(scaleY) ? scaleY : fallback.scaleY,
+        rotation: Number.isFinite(rotation) ? rotation : fallback.rotation,
+      },
+      items,
+    };
+
+    if (!output.sceneItemId || !output.sourceName.length) {
+      throw new StreamerStudioControlError("OBS_BROWSER_SOURCE_COMMAND_FAILED", "Invalid browser source response.");
+    }
+
+    if (transformWidth !== undefined && Number.isFinite(transformWidth)) {
+      output.transform.width = transformWidth;
+    }
+    if (transformHeight !== undefined && Number.isFinite(transformHeight)) {
+      output.transform.height = transformHeight;
     }
 
     return output;

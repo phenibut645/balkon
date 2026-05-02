@@ -669,6 +669,114 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
+  app.post("/streamer-studio/:streamerId/control/source/browser", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    const sourceNameRaw = body.sourceName;
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!url.length || url.length > 1000) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "url must be a non-empty string up to 1000 chars.",
+      };
+    }
+
+    if (!/^https?:\/\//i.test(url)) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "url must be a valid http:// or https:// URL.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    const width = body.width === undefined ? 800 : parseFiniteNumber(body.width);
+    const height = body.height === undefined ? 450 : parseFiniteNumber(body.height);
+    const positionX = body.positionX === undefined ? 100 : parseFiniteNumber(body.positionX);
+    const positionY = body.positionY === undefined ? 100 : parseFiniteNumber(body.positionY);
+    const scaleX = body.scaleX === undefined ? 1 : parseFiniteNumber(body.scaleX);
+    const scaleY = body.scaleY === undefined ? 1 : parseFiniteNumber(body.scaleY);
+    const rotation = body.rotation === undefined ? 0 : parseFiniteNumber(body.rotation);
+
+    if (width === null || height === null || positionX === null || positionY === null || scaleX === null || scaleY === null || rotation === null) {
+      return {
+        ok: false,
+        error: "OBS_BROWSER_SOURCE_INVALID",
+        message: "width, height, position, scale, and rotation fields must be finite numbers.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.createBrowserSource(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sourceName: sourceName ?? null,
+          url,
+          width,
+          height,
+          positionX,
+          positionY,
+          scaleX,
+          scaleY,
+          rotation,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to create OBS browser source.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.patch("/streamer-studio/:streamerId/control/scene-item/transform", { preHandler: requireAuth }, async request => {
     const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
     if (!streamerId) {
