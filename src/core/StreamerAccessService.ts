@@ -15,6 +15,23 @@ export type StreamerAccessView = {
   canControl: boolean;
   obsAgentConfigured?: boolean;
   obsAgentOnline?: boolean;
+  obsAgentVersion?: string | null;
+  obsRelayProtocolVersion?: number | null;
+  obsAgentCapabilities?: string[];
+  obsConnected?: boolean | null;
+  obsVersion?: string | null;
+  obsWebsocketVersion?: string | null;
+};
+
+type StreamerObsMeta = {
+  configured: boolean;
+  online: boolean;
+  agentVersion: string | null;
+  relayProtocolVersion: number | null;
+  capabilities: string[];
+  obsConnected: boolean | null;
+  obsVersion: string | null;
+  websocketVersion: string | null;
 };
 
 export type TrustedUserView = {
@@ -383,7 +400,7 @@ export class StreamerAccessService {
     discordId: string,
     streamer: StreamerRow,
     accessRole: StreamerAccessRole,
-    obsMeta?: { configured: boolean; online: boolean } | undefined,
+    obsMeta?: StreamerObsMeta | undefined,
   ): StreamerAccessView {
     const canManage = accessRole === "bot_admin" || accessRole === "owner" || accessRole === "manager";
     const canControl = canManage || accessRole === "moderator";
@@ -397,11 +414,17 @@ export class StreamerAccessService {
       canControl,
       obsAgentConfigured: obsMeta?.configured,
       obsAgentOnline: obsMeta?.online,
+      obsAgentVersion: obsMeta?.agentVersion ?? null,
+      obsRelayProtocolVersion: obsMeta?.relayProtocolVersion ?? null,
+      obsAgentCapabilities: obsMeta?.capabilities ?? [],
+      obsConnected: obsMeta?.obsConnected ?? null,
+      obsVersion: obsMeta?.obsVersion ?? null,
+      obsWebsocketVersion: obsMeta?.websocketVersion ?? null,
     };
   }
 
-  private async loadObsMeta(streamerIds: number[]): Promise<Map<number, { configured: boolean; online: boolean }>> {
-    const result = new Map<number, { configured: boolean; online: boolean }>();
+  private async loadObsMeta(streamerIds: number[]): Promise<Map<number, StreamerObsMeta>> {
+    const result = new Map<number, StreamerObsMeta>();
     if (!streamerIds.length) {
       return result;
     }
@@ -437,11 +460,29 @@ export class StreamerAccessService {
     for (const streamerId of streamerIds) {
       const agentId = agentByStreamerId.get(streamerId);
       if (!agentId) {
-        result.set(streamerId, { configured: false, online: false });
+        result.set(streamerId, {
+          configured: false,
+          online: false,
+          agentVersion: null,
+          relayProtocolVersion: null,
+          capabilities: [],
+          obsConnected: null,
+          obsVersion: null,
+          websocketVersion: null,
+        });
         continue;
       }
       const status = statuses.get(agentId);
-      result.set(streamerId, { configured: true, online: status?.online ?? false });
+      result.set(streamerId, {
+        configured: true,
+        online: status?.online ?? false,
+        agentVersion: status?.agentVersion ?? null,
+        relayProtocolVersion: status?.relayProtocolVersion ?? null,
+        capabilities: status?.capabilities ?? [],
+        obsConnected: status?.obsConnected ?? null,
+        obsVersion: status?.obsVersion ?? null,
+        websocketVersion: status?.websocketVersion ?? null,
+      });
     }
 
     return result;

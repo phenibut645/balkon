@@ -58,7 +58,7 @@ export class ObsRelayService {
                     }
 
                     this.registerAgentSocket(parsedMessage.agentId, socket);
-                    void obsAgentStatusService.markConnected(parsedMessage.agentId).catch(error => {
+                    void obsAgentStatusService.markConnected(parsedMessage.agentId, parsedMessage.metadata).catch(error => {
                         console.error("Failed to persist OBS agent connected status", error);
                     });
                     socket.send(JSON.stringify({ type: "hello_ack", agentId: parsedMessage.agentId } satisfies ObsRelayOutgoingMessage));
@@ -161,7 +161,7 @@ export class ObsRelayService {
                 socket.send(JSON.stringify(pong));
                 const agentId = this.socketAgents.get(socket);
                 if (agentId) {
-                    void obsAgentStatusService.markSeen(agentId).catch(error => {
+                    void obsAgentStatusService.markSeen(agentId, parsedMessage.metadata).catch(error => {
                         console.error("Failed to persist OBS agent heartbeat", error);
                     });
                 }

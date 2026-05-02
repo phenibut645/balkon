@@ -1,5 +1,14 @@
 import { ObsMediaAction } from "../core/ObsService.js";
 
+export interface ObsRelayAgentMetadata {
+    agentVersion: string;
+    relayProtocolVersion: number;
+    capabilities: string[];
+    obsConnected: boolean;
+    obsVersion?: string | null;
+    websocketVersion?: string | null;
+}
+
 export type ObsRelayCommandName =
     | "obs.getStatus"
     | "obs.listScenes"
@@ -25,6 +34,7 @@ export interface ObsRelayHelloMessage {
     type: "hello";
     agentId: string;
     agentToken: string;
+    metadata?: ObsRelayAgentMetadata;
 }
 
 export interface ObsRelayHelloAckMessage {
@@ -35,6 +45,7 @@ export interface ObsRelayHelloAckMessage {
 export interface ObsRelayPingMessage {
     type: "ping";
     ts: number;
+    metadata?: ObsRelayAgentMetadata;
 }
 
 export interface ObsRelayPongMessage {
@@ -78,6 +89,10 @@ export interface ObsRelayGetStatusResult {
     endpoint: string | null;
     obsVersion: string | null;
     websocketVersion: string | null;
+    agentVersion?: string;
+    relayProtocolVersion?: number;
+    capabilities?: string[];
+    obsConnected?: boolean;
 }
 
 export interface ObsRelaySceneItem {

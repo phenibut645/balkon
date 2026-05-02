@@ -419,6 +419,7 @@ CREATE TABLE obs_agent_statuses (
     last_seen_at TIMESTAMP NULL,
     disconnected_at TIMESTAMP NULL,
     last_error TEXT NULL,
+    status_payload_json JSON NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
