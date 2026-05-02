@@ -246,6 +246,25 @@ type UpdateBrowserSourceResult = {
   height?: number;
 };
 
+type GetSourceSettingsInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+};
+
+type GetSourceSettingsResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string;
+  inputKind: string | null;
+  settings: {
+    text?: string;
+    url?: string;
+    width?: number;
+    height?: number;
+  };
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -564,6 +583,36 @@ export class StreamerStudioControlService {
     );
 
     return this.normalizeUpdateBrowserSourceResult(data, normalizedInput);
+  }
+
+  async getSourceSettings(
+    discordId: string,
+    streamerId: number,
+    input: GetSourceSettingsInput,
+  ): Promise<GetSourceSettingsResult> {
+    const normalizedInput = this.normalizeGetSourceSettingsInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName ?? null,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.source.settings.get",
+      payload,
+      "OBS_SOURCE_SETTINGS_COMMAND_FAILED",
+      "OBS source settings command failed.",
+    );
+
+    return this.normalizeGetSourceSettingsResult(data, normalizedInput);
   }
 
   isControlError(error: unknown): error is { code: string; message: string } {
@@ -929,6 +978,35 @@ export class StreamerStudioControlService {
     };
   }
 
+  private normalizeGetSourceSettingsInput(
+    input: GetSourceSettingsInput,
+  ): GetSourceSettingsInput & { sourceName: string | null } {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_SOURCE_SETTINGS_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_SOURCE_SETTINGS_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    const sourceNameRaw = input.sourceName;
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      throw new StreamerStudioControlError("OBS_SOURCE_SETTINGS_INVALID", "sourceName must be a string or null.");
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw ?? null;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      throw new StreamerStudioControlError("OBS_SOURCE_SETTINGS_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName,
+    };
+  }
+
   private normalizeCreateTextSourceInput(input: CreateTextSourceInput): Required<CreateTextSourceInput> {
     const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
     if (!sceneName.length || sceneName.length > 160) {
@@ -1261,6 +1339,48 @@ export class StreamerStudioControlService {
       width,
       height,
     };
+  }
+
+  private normalizeGetSourceSettingsResult(
+    raw: unknown,
+    fallback: GetSourceSettingsInput & { sourceName: string | null },
+  ): GetSourceSettingsResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_SOURCE_SETTINGS_COMMAND_FAILED", "Invalid source settings response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = typeof raw.sourceName === "string" ? raw.sourceName.trim() : "";
+    const inputKindRaw = typeof raw.inputKind === "string" ? raw.inputKind.trim() : "";
+    const settingsRaw = isRecord(raw.settings) ? raw.settings : {};
+
+    if (!sourceNameRaw.length) {
+      throw new StreamerStudioControlError("OBS_SOURCE_SETTINGS_COMMAND_FAILED", "Source settings response is missing sourceName.");
+    }
+
+    const output: GetSourceSettingsResult = {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: sourceNameRaw,
+      inputKind: inputKindRaw || null,
+      settings: {},
+    };
+
+    if (typeof settingsRaw.text === "string") {
+      output.settings.text = settingsRaw.text;
+    }
+    if (typeof settingsRaw.url === "string") {
+      output.settings.url = settingsRaw.url;
+    }
+    if (typeof settingsRaw.width === "number" && Number.isFinite(settingsRaw.width)) {
+      output.settings.width = settingsRaw.width;
+    }
+    if (typeof settingsRaw.height === "number" && Number.isFinite(settingsRaw.height)) {
+      output.settings.height = settingsRaw.height;
+    }
+
+    return output;
   }
 
   private normalizeCreateTextSourceResult(raw: unknown, fallback: Required<CreateTextSourceInput>): CreateTextSourceResult {
