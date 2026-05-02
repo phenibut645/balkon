@@ -8,6 +8,8 @@ export type ObsRelayCommandName =
     | "obs.scene.items.list"
     | "obs.scene.item.transform.set"
     | "obs.scene.item.index.set"
+    | "obs.scene.item.visibility.set"
+    | "obs.scene.item.remove"
     | "obs.scene.source.text.create"
     | "obs.scene.source.browser.create"
     | "obs.switchScene"
@@ -147,6 +149,7 @@ export interface ObsRelaySceneItemIndexListItem {
     sceneItemId: number;
     sourceName: string;
     sceneItemIndex: number;
+    enabled?: boolean;
 }
 
 export interface ObsRelaySceneItemIndexSetResult {
@@ -154,6 +157,35 @@ export interface ObsRelaySceneItemIndexSetResult {
     sceneItemId: number;
     sourceName: string | null;
     sceneItemIndex: number;
+    items: ObsRelaySceneItemIndexListItem[];
+}
+
+export interface ObsRelaySceneItemVisibilitySetPayload {
+    sceneName: string;
+    sceneItemId: number;
+    sourceName?: string | null;
+    enabled: boolean;
+}
+
+export interface ObsRelaySceneItemVisibilitySetResult {
+    sceneName: string;
+    sceneItemId: number;
+    sourceName: string | null;
+    enabled: boolean;
+    items: ObsRelaySceneItemIndexListItem[];
+}
+
+export interface ObsRelaySceneItemRemovePayload {
+    sceneName: string;
+    sceneItemId: number;
+    sourceName?: string | null;
+}
+
+export interface ObsRelaySceneItemRemoveResult {
+    sceneName: string;
+    sceneItemId: number;
+    sourceName: string | null;
+    removed: true;
     items: ObsRelaySceneItemIndexListItem[];
 }
 

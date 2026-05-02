@@ -104,6 +104,45 @@ type SetSceneItemIndexResult = {
   }>;
 };
 
+type SetSceneItemVisibilityInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+  enabled: boolean;
+};
+
+type SetSceneItemVisibilityResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string | null;
+  enabled: boolean;
+  items: Array<{
+    sceneItemId: number;
+    sourceName: string;
+    sceneItemIndex: number;
+    enabled?: boolean;
+  }>;
+};
+
+type RemoveSceneItemInput = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName?: string | null;
+};
+
+type RemoveSceneItemResult = {
+  sceneName: string;
+  sceneItemId: number;
+  sourceName: string | null;
+  removed: true;
+  items: Array<{
+    sceneItemId: number;
+    sourceName: string;
+    sceneItemIndex: number;
+    enabled?: boolean;
+  }>;
+};
+
 type CreateTextSourceInput = {
   sceneName: string;
   sourceName?: string | null;
@@ -294,6 +333,67 @@ export class StreamerStudioControlService {
     );
 
     return this.normalizeSetSceneItemIndexResult(data, normalizedInput);
+  }
+
+  async setSceneItemVisibility(
+    discordId: string,
+    streamerId: number,
+    input: SetSceneItemVisibilityInput,
+  ): Promise<SetSceneItemVisibilityResult> {
+    const normalizedInput = this.normalizeSetSceneItemVisibilityInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName ?? null,
+      enabled: normalizedInput.enabled,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.item.visibility.set",
+      payload,
+      "OBS_VISIBILITY_COMMAND_FAILED",
+      "OBS scene item visibility command failed.",
+    );
+
+    return this.normalizeSetSceneItemVisibilityResult(data, normalizedInput);
+  }
+
+  async removeSceneItem(
+    discordId: string,
+    streamerId: number,
+    input: RemoveSceneItemInput,
+  ): Promise<RemoveSceneItemResult> {
+    const normalizedInput = this.normalizeRemoveSceneItemInput(input);
+
+    await this.ensureStreamerExists(streamerId);
+    await this.ensureCanControl(discordId, streamerId);
+    const agentId = await this.resolveOnlineAgentBinding(streamerId);
+
+    const payload: Record<string, unknown> = {
+      sceneName: normalizedInput.sceneName,
+      sceneItemId: normalizedInput.sceneItemId,
+      sourceName: normalizedInput.sourceName ?? null,
+    };
+
+    const data = await this.dispatchObsCommand(
+      streamerId,
+      discordId,
+      agentId,
+      "obs.scene.item.remove",
+      payload,
+      "OBS_REMOVE_COMMAND_FAILED",
+      "OBS remove scene item command failed.",
+    );
+
+    return this.normalizeRemoveSceneItemResult(data, normalizedInput);
   }
 
   async createTextSource(
@@ -582,6 +682,61 @@ export class StreamerStudioControlService {
     };
   }
 
+  private normalizeSetSceneItemVisibilityInput(input: SetSceneItemVisibilityInput): SetSceneItemVisibilityInput {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_VISIBILITY_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_VISIBILITY_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    if (typeof input.enabled !== "boolean") {
+      throw new StreamerStudioControlError("OBS_VISIBILITY_INVALID", "enabled must be a boolean.");
+    }
+
+    const sourceName = input.sourceName;
+    if (sourceName !== undefined && sourceName !== null && typeof sourceName !== "string") {
+      throw new StreamerStudioControlError("OBS_VISIBILITY_INVALID", "sourceName must be a string or null.");
+    }
+    if (typeof sourceName === "string" && sourceName.trim().length > 160) {
+      throw new StreamerStudioControlError("OBS_VISIBILITY_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : (sourceName ?? null),
+      enabled: input.enabled,
+    };
+  }
+
+  private normalizeRemoveSceneItemInput(input: RemoveSceneItemInput): RemoveSceneItemInput {
+    const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
+    if (!sceneName.length || sceneName.length > 160) {
+      throw new StreamerStudioControlError("OBS_REMOVE_INVALID", "sceneName must be a non-empty string up to 160 chars.");
+    }
+
+    if (!Number.isInteger(input.sceneItemId) || input.sceneItemId <= 0) {
+      throw new StreamerStudioControlError("OBS_REMOVE_INVALID", "sceneItemId must be a positive integer.");
+    }
+
+    const sourceName = input.sourceName;
+    if (sourceName !== undefined && sourceName !== null && typeof sourceName !== "string") {
+      throw new StreamerStudioControlError("OBS_REMOVE_INVALID", "sourceName must be a string or null.");
+    }
+    if (typeof sourceName === "string" && sourceName.trim().length > 160) {
+      throw new StreamerStudioControlError("OBS_REMOVE_INVALID", "sourceName must be up to 160 chars.");
+    }
+
+    return {
+      sceneName,
+      sceneItemId: input.sceneItemId,
+      sourceName: typeof sourceName === "string" ? (sourceName.trim() || null) : (sourceName ?? null),
+    };
+  }
+
   private normalizeCreateTextSourceInput(input: CreateTextSourceInput): Required<CreateTextSourceInput> {
     const sceneName = typeof input.sceneName === "string" ? input.sceneName.trim() : "";
     if (!sceneName.length || sceneName.length > 160) {
@@ -728,6 +883,87 @@ export class StreamerStudioControlService {
       sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
       sourceName: typeof sourceNameRaw === "string" ? (sourceNameRaw.trim() || null) : null,
       sceneItemIndex: Number.isInteger(sceneItemIndexRaw) && sceneItemIndexRaw >= 0 ? sceneItemIndexRaw : fallback.sceneItemIndex,
+      items,
+    };
+  }
+
+  private normalizeSetSceneItemVisibilityResult(
+    raw: unknown,
+    fallback: SetSceneItemVisibilityInput,
+  ): SetSceneItemVisibilityResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_VISIBILITY_COMMAND_FAILED", "Invalid scene item visibility response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = raw.sourceName;
+    const enabledRaw = raw.enabled;
+    const itemsValue = raw.items;
+
+    const items = Array.isArray(itemsValue)
+      ? itemsValue
+        .filter(isRecord)
+        .map(item => ({
+          sceneItemId: Number(item.sceneItemId),
+          sourceName: typeof item.sourceName === "string" ? item.sourceName.trim() : "",
+          sceneItemIndex: Number(item.sceneItemIndex),
+          enabled: typeof item.enabled === "boolean" ? item.enabled : undefined,
+        }))
+        .filter(item => Number.isInteger(item.sceneItemId)
+          && item.sceneItemId > 0
+          && item.sourceName.length > 0
+          && Number.isInteger(item.sceneItemIndex)
+          && item.sceneItemIndex >= 0)
+      : [];
+
+    const enabled = typeof enabledRaw === "boolean" ? enabledRaw : fallback.enabled;
+
+    return {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: typeof sourceNameRaw === "string" ? (sourceNameRaw.trim() || null) : fallback.sourceName ?? null,
+      enabled,
+      items,
+    };
+  }
+
+  private normalizeRemoveSceneItemResult(raw: unknown, fallback: RemoveSceneItemInput): RemoveSceneItemResult {
+    if (!isRecord(raw)) {
+      throw new StreamerStudioControlError("OBS_REMOVE_COMMAND_FAILED", "Invalid remove scene item response.");
+    }
+
+    const sceneNameRaw = typeof raw.sceneName === "string" ? raw.sceneName.trim() : "";
+    const sceneItemIdRaw = Number(raw.sceneItemId);
+    const sourceNameRaw = raw.sourceName;
+    const removedRaw = raw.removed;
+    const itemsValue = raw.items;
+
+    if (removedRaw !== true) {
+      throw new StreamerStudioControlError("OBS_REMOVE_COMMAND_FAILED", "OBS remove scene item response did not confirm removal.");
+    }
+
+    const items = Array.isArray(itemsValue)
+      ? itemsValue
+        .filter(isRecord)
+        .map(item => ({
+          sceneItemId: Number(item.sceneItemId),
+          sourceName: typeof item.sourceName === "string" ? item.sourceName.trim() : "",
+          sceneItemIndex: Number(item.sceneItemIndex),
+          enabled: typeof item.enabled === "boolean" ? item.enabled : undefined,
+        }))
+        .filter(item => Number.isInteger(item.sceneItemId)
+          && item.sceneItemId > 0
+          && item.sourceName.length > 0
+          && Number.isInteger(item.sceneItemIndex)
+          && item.sceneItemIndex >= 0)
+      : [];
+
+    return {
+      sceneName: sceneNameRaw || fallback.sceneName,
+      sceneItemId: Number.isInteger(sceneItemIdRaw) && sceneItemIdRaw > 0 ? sceneItemIdRaw : fallback.sceneItemId,
+      sourceName: typeof sourceNameRaw === "string" ? (sourceNameRaw.trim() || null) : fallback.sourceName ?? null,
+      removed: true,
       items,
     };
   }

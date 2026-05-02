@@ -240,6 +240,170 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     }
   });
 
+  app.patch("/streamer-studio/:streamerId/control/scene-item/visibility", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_VISIBILITY_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const sceneItemId = parsePositiveInteger(body.sceneItemId);
+    const sourceNameRaw = body.sourceName;
+    const enabledRaw = body.enabled;
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_VISIBILITY_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!sceneItemId) {
+      return {
+        ok: false,
+        error: "OBS_VISIBILITY_INVALID",
+        message: "sceneItemId must be a positive integer.",
+      };
+    }
+
+    if (typeof enabledRaw !== "boolean") {
+      return {
+        ok: false,
+        error: "OBS_VISIBILITY_INVALID",
+        message: "enabled must be a boolean.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_VISIBILITY_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_VISIBILITY_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.setSceneItemVisibility(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sceneItemId,
+          sourceName: sourceName ?? null,
+          enabled: enabledRaw,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to set OBS scene item visibility.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.delete("/streamer-studio/:streamerId/control/scene-item", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "OBS_REMOVE_INVALID",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const sceneName = typeof body.sceneName === "string" ? body.sceneName.trim() : "";
+    const sceneItemId = parsePositiveInteger(body.sceneItemId);
+    const sourceNameRaw = body.sourceName;
+
+    if (!sceneName.length || sceneName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_REMOVE_INVALID",
+        message: "sceneName must be a non-empty string up to 160 chars.",
+      };
+    }
+
+    if (!sceneItemId) {
+      return {
+        ok: false,
+        error: "OBS_REMOVE_INVALID",
+        message: "sceneItemId must be a positive integer.",
+      };
+    }
+
+    if (sourceNameRaw !== undefined && sourceNameRaw !== null && typeof sourceNameRaw !== "string") {
+      return {
+        ok: false,
+        error: "OBS_REMOVE_INVALID",
+        message: "sourceName must be a string or null.",
+      };
+    }
+
+    const sourceName = typeof sourceNameRaw === "string" ? sourceNameRaw.trim() : sourceNameRaw;
+    if (typeof sourceName === "string" && sourceName.length > 160) {
+      return {
+        ok: false,
+        error: "OBS_REMOVE_INVALID",
+        message: "sourceName must be up to 160 chars.",
+      };
+    }
+
+    try {
+      const data = await streamerStudioControlService.removeSceneItem(
+        request.authUser!.discordId,
+        streamerId,
+        {
+          sceneName,
+          sceneItemId,
+          sourceName: sourceName ?? null,
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (streamerStudioControlService.isControlError(error)) {
+        return {
+          ok: false,
+          error: e.code!,
+          message: e.message || "Streamer studio control error.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_STUDIO_LOAD_FAILED",
+        "Failed to remove OBS scene item.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
   app.get("/streamer-studio/accessible", { preHandler: requireAuth }, async request => {
     try {
       const data = await streamerAccessService.listAccessibleStreamers(request.authUser!.discordId);
