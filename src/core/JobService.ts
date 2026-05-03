@@ -18,6 +18,9 @@ export type JobView = {
   enabled: boolean;
   rewardItemId: number | null;
   rewardItemName: string | null;
+  rewardItemNameRu: string | null;
+  rewardItemNameEn: string | null;
+  rewardItemNameEt: string | null;
   rewardItemEmoji: string | null;
   rewardItemChancePercent: number | null;
   rewardItemQuantity: number | null;
@@ -28,6 +31,9 @@ export type JobView = {
 export type JobRunGrantedItem = {
   itemTemplateId: number;
   name: string;
+  nameRu: string | null;
+  nameEn: string | null;
+  nameEt: string | null;
   emoji: string | null;
   quantity: number;
 };
@@ -72,6 +78,9 @@ interface JobRow extends RowDataPacket {
   enabled: number | boolean;
   reward_item_id: number | string | null;
   reward_item_name: string | null;
+  reward_item_name_ru: string | null;
+  reward_item_name_en: string | null;
+  reward_item_name_et: string | null;
   reward_item_emoji: string | null;
   reward_item_chance_percent: number | string | null;
   reward_item_quantity: number | string | null;
@@ -90,6 +99,9 @@ interface CooldownRow extends RowDataPacket {
 interface ItemIdentityRow extends RowDataPacket {
   id: number | string;
   name: string;
+  name_ru: string | null;
+  name_en: string | null;
+  name_et: string | null;
   emoji: string | null;
 }
 
@@ -163,6 +175,9 @@ export class JobService {
           j.enabled,
           j.reward_item_id,
           i.name AS reward_item_name,
+          i.name_ru AS reward_item_name_ru,
+          i.name_en AS reward_item_name_en,
+          i.name_et AS reward_item_name_et,
           i.emoji AS reward_item_emoji,
           j.reward_item_chance_percent,
           j.reward_item_quantity,
@@ -194,6 +209,9 @@ export class JobService {
           j.enabled,
           j.reward_item_id,
           i.name AS reward_item_name,
+          i.name_ru AS reward_item_name_ru,
+          i.name_en AS reward_item_name_en,
+          i.name_et AS reward_item_name_et,
           i.emoji AS reward_item_emoji,
           j.reward_item_chance_percent,
           j.reward_item_quantity,
@@ -397,6 +415,9 @@ export class JobService {
             j.enabled,
             j.reward_item_id,
             i.name AS reward_item_name,
+            i.name_ru AS reward_item_name_ru,
+            i.name_en AS reward_item_name_en,
+            i.name_et AS reward_item_name_et,
             i.emoji AS reward_item_emoji,
             j.reward_item_chance_percent,
             j.reward_item_quantity,
@@ -475,6 +496,9 @@ export class JobService {
           grantedItems.push({
             itemTemplateId: job.rewardItemId,
             name: job.rewardItemName ?? `#${job.rewardItemId}`,
+            nameRu: job.rewardItemNameRu,
+            nameEn: job.rewardItemNameEn,
+            nameEt: job.rewardItemNameEt,
             emoji: job.rewardItemEmoji,
             quantity,
           });
@@ -535,6 +559,9 @@ export class JobService {
           j.enabled,
           j.reward_item_id,
           i.name AS reward_item_name,
+          i.name_ru AS reward_item_name_ru,
+          i.name_en AS reward_item_name_en,
+          i.name_et AS reward_item_name_et,
           i.emoji AS reward_item_emoji,
           j.reward_item_chance_percent,
           j.reward_item_quantity,
@@ -617,6 +644,9 @@ export class JobService {
       enabled: Boolean(row.enabled),
       rewardItemId: row.reward_item_id === null ? null : Number(row.reward_item_id),
       rewardItemName: row.reward_item_name === null ? null : String(row.reward_item_name),
+      rewardItemNameRu: row.reward_item_name_ru === null ? null : String(row.reward_item_name_ru),
+      rewardItemNameEn: row.reward_item_name_en === null ? null : String(row.reward_item_name_en),
+      rewardItemNameEt: row.reward_item_name_et === null ? null : String(row.reward_item_name_et),
       rewardItemEmoji: row.reward_item_emoji === null ? null : String(row.reward_item_emoji),
       rewardItemChancePercent: row.reward_item_chance_percent === null ? null : Number(row.reward_item_chance_percent),
       rewardItemQuantity: row.reward_item_quantity === null ? null : Number(row.reward_item_quantity),
@@ -627,7 +657,7 @@ export class JobService {
 
   private async requireItem(itemId: number): Promise<ItemIdentityRow | null> {
     const [rows] = await pool.query<ItemIdentityRow[]>(
-      `SELECT id, name, emoji FROM items WHERE id = ? LIMIT 1`,
+      `SELECT id, name, name_ru, name_en, name_et, emoji FROM items WHERE id = ? LIMIT 1`,
       [itemId],
     );
 

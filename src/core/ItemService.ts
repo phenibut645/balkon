@@ -9,6 +9,12 @@ interface ItemTemplateRow extends RowDataPacket {
     id: number;
     name: string;
     description: string;
+    name_ru: string | null;
+    name_en: string | null;
+    name_et: string | null;
+    description_ru: string | null;
+    description_en: string | null;
+    description_et: string | null;
     emoji: string | null;
     image_url: string | null;
     tradeable: number;
@@ -36,6 +42,12 @@ interface InventoryRow extends RowDataPacket {
     item_template_id: number;
     item_name: string;
     item_description: string;
+    name_ru: string | null;
+    name_en: string | null;
+    name_et: string | null;
+    description_ru: string | null;
+    description_en: string | null;
+    description_et: string | null;
     item_emoji: string | null;
     image_url: string | null;
     tradeable: number;
@@ -79,6 +91,12 @@ interface BotShopRow extends RowDataPacket {
     item_template_id: number;
     item_name: string;
     item_description: string;
+    name_ru: string | null;
+    name_en: string | null;
+    name_et: string | null;
+    description_ru: string | null;
+    description_en: string | null;
+    description_et: string | null;
     item_emoji: string | null;
     image_url: string | null;
     tradeable: number;
@@ -96,6 +114,13 @@ interface CraftRecipeRow extends RowDataPacket {
     result_amount: number;
     result_item_id: number;
     result_item_name: string;
+    result_name_ru: string | null;
+    result_name_en: string | null;
+    result_name_et: string | null;
+    result_description: string;
+    result_description_ru: string | null;
+    result_description_en: string | null;
+    result_description_et: string | null;
     result_item_emoji: string | null;
     result_rarity_name: string;
 }
@@ -103,6 +128,13 @@ interface CraftRecipeRow extends RowDataPacket {
 interface CraftRecipeIngredientRow extends RowDataPacket {
     ingredient_item_id: number;
     ingredient_item_name: string;
+    ingredient_name_ru: string | null;
+    ingredient_name_en: string | null;
+    ingredient_name_et: string | null;
+    ingredient_description: string;
+    ingredient_description_ru: string | null;
+    ingredient_description_en: string | null;
+    ingredient_description_et: string | null;
     ingredient_item_emoji: string | null;
     ingredient_amount: number;
 }
@@ -126,6 +158,12 @@ export interface InventoryItemView {
     itemTemplateId: number;
     name: string;
     description: string;
+    nameRu: string | null;
+    nameEn: string | null;
+    nameEt: string | null;
+    descriptionRu: string | null;
+    descriptionEn: string | null;
+    descriptionEt: string | null;
     emoji: string | null;
     imageUrl: string | null;
     tradeable: boolean;
@@ -150,6 +188,12 @@ export interface BotShopListingView {
     itemTemplateId: number;
     name: string;
     description: string;
+    nameRu: string | null;
+    nameEn: string | null;
+    nameEt: string | null;
+    descriptionRu: string | null;
+    descriptionEn: string | null;
+    descriptionEt: string | null;
     emoji: string | null;
     imageUrl: string | null;
     tradeable: boolean;
@@ -169,6 +213,12 @@ export interface ItemTemplateView {
     id: number;
     name: string;
     description: string;
+    nameRu: string | null;
+    nameEn: string | null;
+    nameEt: string | null;
+    descriptionRu: string | null;
+    descriptionEn: string | null;
+    descriptionEt: string | null;
     emoji: string | null;
     imageUrl: string | null;
     tradeable: boolean;
@@ -182,6 +232,13 @@ export interface ItemTemplateView {
 export interface CraftRecipeIngredientView {
     itemTemplateId: number;
     name: string;
+    nameRu: string | null;
+    nameEn: string | null;
+    nameEt: string | null;
+    description: string;
+    descriptionRu: string | null;
+    descriptionEn: string | null;
+    descriptionEt: string | null;
     emoji: string | null;
     amount: number;
 }
@@ -193,6 +250,13 @@ export interface CraftRecipeView {
     resultAmount: number;
     resultItemTemplateId: number;
     resultName: string;
+    resultNameRu: string | null;
+    resultNameEn: string | null;
+    resultNameEt: string | null;
+    resultDescription: string;
+    resultDescriptionRu: string | null;
+    resultDescriptionEn: string | null;
+    resultDescriptionEt: string | null;
     resultEmoji: string | null;
     resultRarityName: string;
     ingredients: CraftRecipeIngredientView[];
@@ -575,6 +639,12 @@ export class ItemService {
     async createItemTemplate(input: {
         name: string;
         description: string;
+        nameRu?: string | null;
+        nameEn?: string | null;
+        nameEt?: string | null;
+        descriptionRu?: string | null;
+        descriptionEn?: string | null;
+        descriptionEt?: string | null;
         emoji?: string | null;
         imageUrl?: string | null;
         rarityName: string;
@@ -587,6 +657,12 @@ export class ItemService {
             const normalizedRarityName = this.normalizeRequiredText(input.rarityName, "Rarity").toLowerCase();
             const normalizedName = this.normalizeRequiredText(input.name, "Item name");
             const normalizedDescription = this.normalizeRequiredText(input.description, "Item description");
+            const normalizedNameRu = this.normalizeLocalizedName(input.nameRu, "Item name RU");
+            const normalizedNameEn = this.normalizeLocalizedName(input.nameEn, "Item name EN");
+            const normalizedNameEt = this.normalizeLocalizedName(input.nameEt, "Item name ET");
+            const normalizedDescriptionRu = this.normalizeOptionalText(input.descriptionRu);
+            const normalizedDescriptionEn = this.normalizeOptionalText(input.descriptionEn);
+            const normalizedDescriptionEt = this.normalizeOptionalText(input.descriptionEt);
             const normalizedImageUrl = this.normalizeImageUrl(input.imageUrl);
             const normalizedEmoji = this.normalizeOptionalText(input.emoji);
             const normalizedBotSellPrice = this.normalizeBotSellPrice(input.botSellPrice);
@@ -614,6 +690,12 @@ export class ItemService {
                 item_rarity_id: rarityResponse.data[0].id,
                 name: normalizedName,
                 description: normalizedDescription,
+                name_ru: normalizedNameRu,
+                name_en: normalizedNameEn,
+                name_et: normalizedNameEt,
+                description_ru: normalizedDescriptionRu,
+                description_en: normalizedDescriptionEn,
+                description_et: normalizedDescriptionEt,
                 emoji: normalizedEmoji,
                 added_at: new Date(),
                 sellable: normalizedBotSellPrice !== null,
@@ -630,6 +712,12 @@ export class ItemService {
     async updateItemTemplate(itemTemplateId: number, input: {
         name: string;
         description: string;
+        nameRu?: string | null;
+        nameEn?: string | null;
+        nameEt?: string | null;
+        descriptionRu?: string | null;
+        descriptionEn?: string | null;
+        descriptionEt?: string | null;
         emoji?: string | null;
         imageUrl?: string | null;
         rarityName: string;
@@ -641,6 +729,12 @@ export class ItemService {
             const normalizedRarityName = this.normalizeRequiredText(input.rarityName, "Rarity").toLowerCase();
             const normalizedName = this.normalizeRequiredText(input.name, "Item name");
             const normalizedDescription = this.normalizeRequiredText(input.description, "Item description");
+            const normalizedNameRu = this.normalizeLocalizedName(input.nameRu, "Item name RU");
+            const normalizedNameEn = this.normalizeLocalizedName(input.nameEn, "Item name EN");
+            const normalizedNameEt = this.normalizeLocalizedName(input.nameEt, "Item name ET");
+            const normalizedDescriptionRu = this.normalizeOptionalText(input.descriptionRu);
+            const normalizedDescriptionEn = this.normalizeOptionalText(input.descriptionEn);
+            const normalizedDescriptionEt = this.normalizeOptionalText(input.descriptionEt);
             const normalizedImageUrl = this.normalizeImageUrl(input.imageUrl);
             const normalizedEmoji = this.normalizeOptionalText(input.emoji);
             const normalizedBotSellPrice = this.normalizeBotSellPrice(input.botSellPrice);
@@ -675,13 +769,19 @@ export class ItemService {
 
             await pool.query(
                 `UPDATE items
-                 SET item_type_id = ?, item_rarity_id = ?, name = ?, description = ?, emoji = ?, sellable = ?, tradeable = ?, image_url = ?, bot_sell_price = ?
+                 SET item_type_id = ?, item_rarity_id = ?, name = ?, description = ?, name_ru = ?, name_en = ?, name_et = ?, description_ru = ?, description_en = ?, description_et = ?, emoji = ?, sellable = ?, tradeable = ?, image_url = ?, bot_sell_price = ?
                  WHERE id = ?`,
                 [
                     typeResponse.data.id,
                     rarityResponse.data[0].id,
                     normalizedName,
                     normalizedDescription,
+                    normalizedNameRu,
+                    normalizedNameEn,
+                    normalizedNameEt,
+                    normalizedDescriptionRu,
+                    normalizedDescriptionEn,
+                    normalizedDescriptionEt,
                     normalizedEmoji,
                     normalizedBotSellPrice !== null,
                     input.tradeable,
@@ -1078,6 +1178,13 @@ export class ItemService {
                     cr.result_amount,
                     i.id AS result_item_id,
                     i.name AS result_item_name,
+                    i.name_ru AS result_name_ru,
+                    i.name_en AS result_name_en,
+                    i.name_et AS result_name_et,
+                    i.description AS result_description,
+                    i.description_ru AS result_description_ru,
+                    i.description_en AS result_description_en,
+                    i.description_et AS result_description_et,
                     i.emoji AS result_item_emoji,
                     ir.name AS result_rarity_name
                  FROM craft_recipes AS cr
@@ -1095,6 +1202,13 @@ export class ItemService {
                     cri.craft_recipe_id,
                     cri.item_id AS ingredient_item_id,
                     i.name AS ingredient_item_name,
+                    i.name_ru AS ingredient_name_ru,
+                    i.name_en AS ingredient_name_en,
+                    i.name_et AS ingredient_name_et,
+                    i.description AS ingredient_description,
+                    i.description_ru AS ingredient_description_ru,
+                    i.description_en AS ingredient_description_en,
+                    i.description_et AS ingredient_description_et,
                     i.emoji AS ingredient_item_emoji,
                     cri.amount AS ingredient_amount
                  FROM craft_recipe_ingredients AS cri
@@ -1121,6 +1235,13 @@ export class ItemService {
                     cr.result_amount,
                     i.id AS result_item_id,
                     i.name AS result_item_name,
+                    i.name_ru AS result_name_ru,
+                    i.name_en AS result_name_en,
+                    i.name_et AS result_name_et,
+                    i.description AS result_description,
+                    i.description_ru AS result_description_ru,
+                    i.description_en AS result_description_en,
+                    i.description_et AS result_description_et,
                     i.emoji AS result_item_emoji,
                     ir.name AS result_rarity_name
                  FROM craft_recipes AS cr
@@ -1139,6 +1260,13 @@ export class ItemService {
                 `SELECT
                     cri.item_id AS ingredient_item_id,
                     i.name AS ingredient_item_name,
+                    i.name_ru AS ingredient_name_ru,
+                    i.name_en AS ingredient_name_en,
+                    i.name_et AS ingredient_name_et,
+                    i.description AS ingredient_description,
+                    i.description_ru AS ingredient_description_ru,
+                    i.description_en AS ingredient_description_en,
+                    i.description_et AS ingredient_description_et,
                     i.emoji AS ingredient_item_emoji,
                     cri.amount AS ingredient_amount
                  FROM craft_recipe_ingredients AS cri
@@ -1309,6 +1437,12 @@ export class ItemService {
                     i.id,
                     i.name,
                     i.description,
+                    i.name_ru,
+                    i.name_en,
+                    i.name_et,
+                    i.description_ru,
+                    i.description_en,
+                    i.description_et,
                     i.emoji,
                     i.image_url,
                     i.tradeable,
@@ -1339,6 +1473,12 @@ export class ItemService {
                     i.id,
                     i.name,
                     i.description,
+                    i.name_ru,
+                    i.name_en,
+                    i.name_et,
+                    i.description_ru,
+                    i.description_en,
+                    i.description_et,
                     i.emoji,
                     i.image_url,
                     i.tradeable,
@@ -1463,6 +1603,12 @@ export class ItemService {
                     i.id AS item_template_id,
                     i.name AS item_name,
                     i.description AS item_description,
+                    i.name_ru,
+                    i.name_en,
+                    i.name_et,
+                    i.description_ru,
+                    i.description_en,
+                    i.description_et,
                     i.emoji AS item_emoji,
                     i.image_url,
                     i.tradeable,
@@ -1486,6 +1632,12 @@ export class ItemService {
                     itemTemplateId: row.item_template_id,
                     name: row.item_name,
                     description: row.item_description,
+                    nameRu: row.name_ru,
+                    nameEn: row.name_en,
+                    nameEt: row.name_et,
+                    descriptionRu: row.description_ru,
+                    descriptionEn: row.description_en,
+                    descriptionEt: row.description_et,
                     emoji: row.item_emoji,
                     imageUrl: row.image_url,
                     tradeable: Boolean(row.tradeable),
@@ -1590,6 +1742,12 @@ export class ItemService {
                     i.id AS item_template_id,
                     i.name AS item_name,
                     i.description AS item_description,
+                    i.name_ru,
+                    i.name_en,
+                    i.name_et,
+                    i.description_ru,
+                    i.description_en,
+                    i.description_et,
                     i.emoji AS item_emoji,
                     i.image_url,
                     i.tradeable,
@@ -1806,6 +1964,12 @@ export class ItemService {
                     itemTemplateId: row.item_template_id,
                     name: row.item_name,
                     description: row.item_description,
+                    nameRu: row.name_ru,
+                    nameEn: row.name_en,
+                    nameEt: row.name_et,
+                    descriptionRu: row.description_ru,
+                    descriptionEn: row.description_en,
+                    descriptionEt: row.description_et,
                     emoji: row.item_emoji,
                     imageUrl: row.image_url,
                     tradeable: Boolean(row.tradeable),
@@ -2255,6 +2419,13 @@ export class ItemService {
                     i.id AS item_template_id,
                     i.name AS item_name,
                     i.description AS item_description,
+                    i.name_ru,
+                    i.name_en,
+                    i.name_et,
+                    i.description_ru,
+                    i.description_en,
+                    i.description_et,
+                    i.emoji AS item_emoji,
                     i.image_url,
                     i.tradeable,
                     i.sellable,
@@ -2302,6 +2473,12 @@ export class ItemService {
             itemTemplateId: row.item_template_id,
             name: row.item_name,
             description: row.item_description,
+            nameRu: row.name_ru,
+            nameEn: row.name_en,
+            nameEt: row.name_et,
+            descriptionRu: row.description_ru,
+            descriptionEn: row.description_en,
+            descriptionEt: row.description_et,
             emoji: row.item_emoji,
             imageUrl: row.image_url,
             tradeable: Boolean(row.tradeable),
@@ -2332,6 +2509,12 @@ export class ItemService {
             id: row.id,
             name: row.name,
             description: row.description,
+            nameRu: row.name_ru,
+            nameEn: row.name_en,
+            nameEt: row.name_et,
+            descriptionRu: row.description_ru,
+            descriptionEn: row.description_en,
+            descriptionEt: row.description_et,
             emoji: row.emoji,
             imageUrl: row.image_url,
             tradeable: Boolean(row.tradeable),
@@ -2351,11 +2534,25 @@ export class ItemService {
             resultAmount: Number(recipeRow.result_amount),
             resultItemTemplateId: recipeRow.result_item_id,
             resultName: recipeRow.result_item_name,
+            resultNameRu: recipeRow.result_name_ru,
+            resultNameEn: recipeRow.result_name_en,
+            resultNameEt: recipeRow.result_name_et,
+            resultDescription: recipeRow.result_description,
+            resultDescriptionRu: recipeRow.result_description_ru,
+            resultDescriptionEn: recipeRow.result_description_en,
+            resultDescriptionEt: recipeRow.result_description_et,
             resultEmoji: recipeRow.result_item_emoji,
             resultRarityName: recipeRow.result_rarity_name,
             ingredients: ingredientRows.map(row => ({
                 itemTemplateId: row.ingredient_item_id,
                 name: row.ingredient_item_name,
+                nameRu: row.ingredient_name_ru,
+                nameEn: row.ingredient_name_en,
+                nameEt: row.ingredient_name_et,
+                description: row.ingredient_description,
+                descriptionRu: row.ingredient_description_ru,
+                descriptionEn: row.ingredient_description_en,
+                descriptionEt: row.ingredient_description_et,
                 emoji: row.ingredient_item_emoji,
                 amount: Number(row.ingredient_amount),
             })),
@@ -2378,6 +2575,15 @@ export class ItemService {
 
         const normalizedValue = value.trim();
         return normalizedValue.length ? normalizedValue : null;
+    }
+
+    private normalizeLocalizedName(value?: string | null, fieldName: string = "Localized item name"): string | null {
+        const normalizedValue = this.normalizeOptionalText(value);
+        if (normalizedValue !== null && normalizedValue.length > 255) {
+            throw new Error(`${fieldName} must be 255 characters or less.`);
+        }
+
+        return normalizedValue;
     }
 
     private normalizeColorHex(colorHex?: string): string | null {
