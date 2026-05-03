@@ -46,7 +46,8 @@ export type DataBaseTables =
     | "api_sessions"
     | "admin_economy_adjustments"
     | "obs_media_actions"
-    | "streamer_services";
+    | "streamer_services"
+    | "streamer_applications";
 
 export interface DefaultDBTable {
     id: number;
@@ -157,6 +158,7 @@ export type StreamerOwnerRole = "owner" | "manager";
 export type StreamerTrustedUserRole = "moderator" | "manager";
 export type StreamerManagedServiceType = "obs_media";
 export type StreamerManagedServiceMediaKind = "image" | "gif" | "video" | "browser";
+export type StreamerApplicationStatus = "pending" | "approved" | "rejected";
 
 export interface StreamerOwnersDB extends DefaultDBTable {
     streamer_id: number;
@@ -186,6 +188,21 @@ export interface StreamerServicesDB extends DefaultDBTable {
     enabled?: boolean;
     created_by_member_id?: number | null;
     updated_by_member_id?: number | null;
+    created_at?: number | Date;
+    updated_at?: number | Date;
+}
+
+export interface StreamerApplicationsDB extends DefaultDBTable {
+    applicant_member_id: number;
+    discord_guild_id: string;
+    requested_nickname: string;
+    twitch_url?: string | null;
+    description?: string | null;
+    status: StreamerApplicationStatus;
+    reviewed_by_member_id?: number | null;
+    streamer_id?: number | null;
+    reviewed_at?: number | Date | null;
+    rejection_reason?: string | null;
     created_at?: number | Date;
     updated_at?: number | Date;
 }

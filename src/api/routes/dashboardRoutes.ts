@@ -11,6 +11,7 @@ import { getBotAdminDashboardStats, isBotAdmin } from "../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../core/StreamerAccessService.js";
 import { streamerService } from "../../core/StreamerService.js";
 import { registerStreamerStudioRoutes } from "./dashboard/streamerStudioRoutes.js";
+import { registerStreamerApplicationRoutes } from "./dashboard/streamerApplicationRoutes.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireBotContributor } from "../middleware/requireBotContributor.js";
 import { requireBotAdmin } from "../middleware/requireBotAdmin.js";
@@ -355,6 +356,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   const streamerAccessService = StreamerAccessService.getInstance();
 
   await registerStreamerStudioRoutes(app);
+  await registerStreamerApplicationRoutes(app);
 
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
