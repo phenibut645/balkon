@@ -21,6 +21,7 @@ export type RelatedTo = "unknown" | DataBaseTables;
 export interface DBError {
     reason: PossibleErrorReason;
     relatedTo: RelatedTo;
+    code?: string;
     message?: string;
 }
 
@@ -81,13 +82,16 @@ export class DataBaseHandler {
     }
 
     static errorHandling(err?: unknown, ): DBResponseFail {
-        console.log("🚬 Error handling...")
+        console.log(" Error handling...")
         console.error(err)
         return {
             success: false,
             error: {
                 reason: "unknown",
                 relatedTo: "unknown",
+                code: err instanceof Error && typeof (err as Error & { code?: unknown }).code === "string"
+                    ? (err as Error & { code?: string }).code
+                    : undefined,
                 message: err instanceof Error ? err.message : undefined
             }
         }

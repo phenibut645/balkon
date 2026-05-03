@@ -11,6 +11,7 @@ import { getBotAdminDashboardStats, isBotAdmin } from "../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../core/StreamerAccessService.js";
 import { streamerService } from "../../core/StreamerService.js";
 import { registerStreamerStudioRoutes } from "./dashboard/streamerStudioRoutes.js";
+import { registerAdminStreamerRoutes } from "./dashboard/adminStreamerRoutes.js";
 import { registerStreamerApplicationRoutes } from "./dashboard/streamerApplicationRoutes.js";
 import { registerCraftExecutionRoutes } from "./dashboard/craftExecutionRoutes.js";
 import { registerJobRoutes } from "./dashboard/jobRoutes.js";
@@ -358,6 +359,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   const streamerAccessService = StreamerAccessService.getInstance();
 
   await registerStreamerStudioRoutes(app);
+  await registerAdminStreamerRoutes(app);
   await registerStreamerApplicationRoutes(app);
   await registerCraftExecutionRoutes(app);
   await registerJobRoutes(app);
