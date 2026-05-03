@@ -1,271 +1,208 @@
 <div align="center">
 
-# 🥀 Balkon
+# Balkon
 
-### Discord bot ecosystem for items, economy, crafting, streamer tools and OBS control
+### Discord bot, backend API and OBS relay for Discord server management and OBS Studio control
 
-<img src="https://media.tenor.com/chNGPcAXt4QAAAAd/pirat.gif" width="285" />
-<img src="https://media.tenor.com/SxzG9vFWtTcAAAAM/zxc-cat.gif" width="215" />
-<img src="https://images6.fanpop.com/image/photos/41000000/Ken-Kaneki-tokyo-ghoul-GIF-anime-41018150-500-395.gif" width="260" />
-
-<br />
-
-![Node.js](https://img.shields.io/badge/Node.js-Discord_bot-339933?logo=node.js&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-strict-ish-3178C6?logo=typescript&logoColor=white)
-![Discord.js](https://img.shields.io/badge/discord.js-v14-5865F2?logo=discord&logoColor=white)
-![MySQL](https://img.shields.io/badge/MySQL-database-4479A1?logo=mysql&logoColor=white)
-![OBS Agent](https://img.shields.io/badge/OBS-Agent_relay-302E31?logo=obsstudio&logoColor=white)
-![VNMCR](https://img.shields.io/badge/VNMCR-goth_punk_rock-111111?logo=applemusic&logoColor=white&labelColor=7A0019)
-
-> **zxc lobby management tool**: Discord economy + inventory + crafting + marketplace + OBS Agent relay.  
-> Pirate ship included. MMR not guaranteed. VNMCR-coded. 🦜
+Balkon is a diploma project and production system built around Discord, a web dashboard, MySQL and OBS Studio.
 
 </div>
 
 ---
 
-## 🧭 Navigation
+## Navigation
 
-- [What is Balkon?](#-what-is-balkon)
-- [Ecosystem](#-ecosystem)
-- [Features](#-features)
-- [Discord OAuth2 setup](#-discord-oauth2-setup)
-- [Quick start](#-quick-start)
-- [Production deploy](#-production-deploy)
-- [OBS Agent mode](#-obs-agent-mode)
-- [Project workflow](#-project-workflow)
-- [Database workflow](#-database-workflow)
-- [Manual test checklist](#-manual-test-checklist)
-- [Diploma showcase flow](#-diploma-showcase-flow)
-
----
-
-## 🧩 What is Balkon?
-
-**Balkon** is a TypeScript Discord bot built with `discord.js`, `mysql2`, slash commands and interactive Discord menus.
-
-It started as a Discord bot diploma project, then evolved into a small ecosystem:
-
-- 🎮 Discord community tools.
-- 💰 Economy and balances.
-- 🎒 Inventory and item instances.
-- 🏪 Market and bot shop.
-- ⚒️ Crafting recipes.
-- 🎥 OBS Studio control through a standalone OBS Agent.
-- 🧙 Streamer-oriented automation.
-
-It was originally created as a thesis project and for a Discord server: [join here](https://discord.gg/eMrbGMzmyt).
-But now it’s a publicly available bot with a shared economy across servers
+- [What is Balkon?](#what-is-balkon)
+- [Repository ecosystem](#repository-ecosystem)
+- [Current feature set](#current-feature-set)
+- [Architecture](#architecture)
+- [Authentication](#authentication)
+- [Local development](#local-development)
+- [Production deployment](#production-deployment)
+- [Database workflow](#database-workflow)
+- [OBS relay and OBS Agent](#obs-relay-and-obs-agent)
+- [Website integration](#website-integration)
+- [Development workflow](#development-workflow)
+- [Manual test checklist](#manual-test-checklist)
+- [Diploma documentation context](#diploma-documentation-context)
 
 ---
 
-## 🏗️ Ecosystem
+## What is Balkon?
 
-<table>
-  <thead>
-    <tr>
-      <th>Project</th>
-      <th>Role</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>balkon</code></td>
-      <td>Main Discord bot, database logic, relay server, slash commands, interactive menu.</td>
-      <td>✅ active</td>
-    </tr>
-    <tr>
-      <td><code>balkon-obs-agent</code></td>
-      <td>Standalone desktop app for streamers. Connects local OBS Studio to Balkon relay.</td>
-      <td>✅ active</td>
-    </tr>
-    <tr>
-      <td><code>balkon-website</code></td>
-      <td>Planned web dashboard with Discord login, streamer/session management and admin UI.</td>
-      <td>🧪 planned</td>
-    </tr>
-  </tbody>
-</table>
+Balkon is a TypeScript-based system for Discord server administration and OBS Studio management.
 
-## REST API Foundation
+The system started as a Discord bot project and evolved into a multi-repository application:
 
-The repository now has two runtime applications:
+- Discord bot for Discord gateway events, slash commands and community logic
+- backend REST API for the web dashboard
+- MySQL database with versioned migrations
+- OBS relay for connected streamer agents
+- Next.js website dashboard
+- local Windows OBS Agent for streamers
 
-- `balkon-bot`: existing Discord bot process (Discord gateway + `discord.js` actions).
-- `balkon-api`: new REST API process for the future web dashboard.
-
-Also planned for dashboard frontend:
-
-- `balkon-website`: separate Next.js repository (`phenibut645/balkon-website`).
-- For local convenience, it can live as nested folder `balkon-website/` in this workspace.
-- Root `balkon` `.gitignore` excludes `balkon-website/` so website files are not tracked here.
-- Website uses existing Fastify API for OAuth/session/backend data and does not store Discord OAuth client secret.
-
-Current rollout status: **internal/staging only**.
-
-Flow:
-
-1. Website calls `balkon-api` only.
-2. API uses shared services and database for standard data operations.
-3. For Discord-specific actions, API writes a command into `bot_commands` queue.
-4. Bot process (`BotCommandWorker`) consumes commands and executes Discord API calls.
-
-This does not create a custom Discord API and does not expose bot tokens to frontend clients.
-
-### API local run
-
-1. Install dependencies:
-   `npm install`
-2. Run API in dev mode:
-   `npm run dev:api`
-3. Build and run API from `dist`:
-   `npm run build`
-   `npm run start:api`
-
-Default API base path: `/api`
-
-Implemented first endpoints:
-
-- `GET /api/health`
-- `GET /api/version`
-- `GET /api/me`
-- `GET /api/inventory`
-- `GET /api/market`
-- `GET /api/botshop`
-- `GET /api/craft/recipes`
-- `GET /api/admin/stats`
-- `POST /api/guilds/:guildId/members/:memberId/kick` (enqueue only; execution happens in bot worker)
-
-### API auth safety boundary
-
-Discord OAuth2 Authorization Code Grant is implemented in `balkon-api`.
-
-Important:
-
-- OAuth2 is implemented in the API, not in the website frontend.
-- Website must not store Discord client secret.
-- Website login button should redirect user to `GET /api/auth/discord`.
-- Website then calls API routes (for example `/api/me`) with credentials included.
-
-Development header auth is intentionally gated and disabled by default:
-
-- Works only when `NODE_ENV !== "prod"`.
-- Works only when `API_DEV_AUTH_ENABLED=true`.
-- If `API_DEV_AUTH_ENABLED` is missing, header auth stays disabled.
-- In `NODE_ENV=prod`, `x-dev-discord-id` and `x-dev-roles` are ignored.
-
-Production behavior:
-
-- Public production API requires real OAuth/session auth.
-- Without a valid session cookie, protected routes return `401`.
-
-### Discord OAuth2 setup
-
-1. Open Discord Developer Portal.
-2. Select the existing bot application.
-3. Go to **OAuth2 -> General**.
-4. Copy Client ID into `DISCORD_OAUTH_CLIENT_ID`.
-5. Copy Client Secret into `DISCORD_OAUTH_CLIENT_SECRET`.
-6. Add redirect URI:
-   `http://localhost:3001/api/auth/discord/callback` for local.
-   `https://your-api-domain.example/api/auth/discord/callback` for production.
-7. Set website redirect variables:
-   `WEB_APP_URL`, `WEB_APP_AUTH_SUCCESS_URL`, `WEB_APP_AUTH_ERROR_URL`.
-8. Run migrations:
-   `npm run db:migrate:dev`
-9. Start API:
-   `npm run dev:api`
-10. Website login button should redirect to:
-   `http://localhost:3001/api/auth/discord`
-
-### OAuth behavior summary
-
-- `GET /api/auth/discord` redirects to Discord authorize URL.
-- `GET /api/auth/discord/callback` validates state, exchanges code, creates DB session, sets secure httpOnly cookie, and redirects to website.
-- `POST /api/auth/logout` revokes/deletes server-side session and clears cookie.
-- `GET /api/me` works with real OAuth session cookie.
-- `GET /api/me` also works with dev headers only when `NODE_ENV !== prod` and `API_DEV_AUTH_ENABLED=true`.
-- In production, dev headers do not authenticate.
-
-### Development-only headers (disabled by default)
-
-For local development with explicit opt-in (`API_DEV_AUTH_ENABLED=true`):
-
-- `x-dev-discord-id: <discord_user_id>`
-- `x-dev-roles: bot_admin,bot_contributor,guild_founder`
-
-Never use these headers in production.
-
-### Runtime flow
+The registered diploma topic is:
 
 ```text
-Discord user/admin
-      ↓
-Discord slash command or /botmenu
-      ↓
-Balkon main bot
-      ↓
-MySQL / OBS Relay / business logic
-      ↓
-Balkon OBS Agent on streamer PC
-      ↓
-Local OBS Studio WebSocket
+Discordi bot ja veebirakenduse arendamine OBS Studio haldamiseks ja Discordiserverite administreerimiseks
+```
+
+In diploma terms, Balkon can be described as:
+
+```text
+Balkon on Discordi botist, veebirakendusest, backend API-st ja OBS Agentist koosnev süsteem, mille eesmärk on lihtsustada Discordi serveri haldamist ning võimaldada OBS Studio juhtimist veebipõhise kasutajaliidese kaudu.
 ```
 
 ---
 
-## ✨ Features
+## Repository Ecosystem
 
-### Discord and admin tools
+| Repository | Role | Status |
+|---|---|---|
+| `phenibut645/balkon` | Main backend, Discord bot, REST API, database migrations, business logic, OBS relay | active |
+| `phenibut645/balkon-website` | Next.js web dashboard for users, streamers and admins | active |
+| `phenibut645/balkon-obs-agent` | Local Windows desktop app that connects streamer OBS Studio to Balkon relay | active |
 
-- Slash commands through `discord.js`.
-- Interactive `/menu` / `/botmenu`.
-- Role/member command permissions.
-- Guild/member/channel/role persistence.
-
-### Item and economy layer
-
-- Item templates.
-- Concrete inventory items.
-- Rarities and item types.
-- Player inventory.
-- ODM/LDM balances.
-- Player market.
-- Bot shop.
-- Original owner tracking.
-
-### Crafting
-
-- Admin-managed craft recipes.
-- Recipe ingredients.
-- Craft result item generation.
-- User-facing craft commands and menu flows.
-
-### OBS / streamer layer
-
-- Streamer registration.
-- Primary streamer support.
-- Multiple streamers per Discord guild.
-- OBS Agent credentials.
-- OBS relay WebSocket server.
-- `/botmenu → OBS` controls selected streamer's connected OBS Agent.
-- Scene listing and scene switching.
-- Source visibility control.
-- Text input update.
-- Media source actions.
+The repositories are separate. For local convenience, `balkon-website` and `balkon-obs-agent` may appear as nested folders in the development workspace, but each is its own Git repository.
 
 ---
 
-## ⚡ Quick start
+## Current Feature Set
 
-### 1. Install dependencies
+### Backend / API
+
+- Discord OAuth2 authentication
+- httpOnly session-based auth
+- REST API under `/api`
+- protected dashboard routes
+- admin routes
+- command queue for Discord/OBS-related actions
+- MySQL service layer and migrations
+- production migration workflow
+
+### Discord Bot
+
+- Discord.js based bot process
+- slash commands
+- interactive menu flows
+- guild/member/channel/role persistence
+- economy and item-related commands
+- streamer-related commands
+- OBS-related command integration through relay/agent model
+
+### Economy and Community Modules
+
+- user balances, including ODM
+- item templates
+- concrete inventory items
+- original owner tracking
+- item rarities and types
+- player inventory
+- player market
+- bot shop
+- crafting recipes and craft execution
+- jobs/work system with cooldowns and rewards
+- optional item rewards for jobs
+- item localization RU/EN/ET
+
+### Streamer and OBS Modules
+
+- streamer registration/application flow
+- admin approval/rejection of streamer applications
+- streamer access and permissions
+- soft-archive of streamers without deleting history
+- Streamer Studio backend support
+- OBS Agent pairing/status
+- OBS relay WebSocket server
+- OBS command forwarding
+- OBS shop/services
+- OBS action history
+
+### Admin Modules
+
+- admin stats
+- guild/server tools
+- item management
+- jobs management
+- streamer list and archive
+- streamer applications
+- economy/currency tools
+- OBS-related administration
+
+---
+
+## Architecture
+
+High-level runtime architecture:
+
+```text
+Discord user / dashboard user / admin
+      ↓
+Discord bot or Balkon Website
+      ↓
+Balkon backend API and service layer
+      ↓
+MySQL database / bot command queue / OBS relay
+      ↓
+Discord API and/or Balkon OBS Agent
+      ↓
+Discord server and/or local OBS Studio
+```
+
+The website does not talk directly to Discord or OBS Studio. It calls the backend API with a session cookie. The backend validates sessions, permissions and business rules.
+
+The OBS Agent model exists because OBS Studio runs locally on the streamer's PC while the backend runs remotely. The backend/relay sends commands to the connected local agent, and the agent executes them against local OBS Studio through obs-websocket.
+
+---
+
+## Authentication
+
+Discord OAuth2 Authorization Code Grant is implemented in the backend API.
+
+Flow:
+
+```text
+website login button
+      ↓
+GET /api/auth/discord
+      ↓
+Discord OAuth2 authorization
+      ↓
+GET /api/auth/discord/callback
+      ↓
+backend creates session and sets httpOnly cookie
+      ↓
+website calls /api/me with credentials included
+```
+
+Important rules:
+
+- OAuth2 client secret is stored only in backend environment variables.
+- Website must not store Discord OAuth client secret.
+- Website calls authenticated API routes with `credentials: include`.
+- Development header auth is disabled by default and must never be used in production.
+- In production, protected routes require a real session cookie.
+
+Development-only headers, when explicitly enabled for local development:
+
+```text
+x-dev-discord-id: <discord_user_id>
+x-dev-roles: bot_admin,bot_contributor,guild_founder
+```
+
+These are ignored in production.
+
+---
+
+## Local Development
+
+### Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Create env files
+### Environment files
 
 PowerShell:
 
@@ -274,83 +211,62 @@ Copy-Item .env.dev.example .env.dev
 Copy-Item .env.prod.example .env.prod
 ```
 
-Fill Discord, MySQL and Twitch credentials in the copied files.
+Fill Discord, MySQL, session and other required credentials in the copied files.
 
-### 3. Build
+### Build
 
 ```bash
 npm run build
 ```
 
-### 4. Initialize fresh dev database
+### Initialize fresh dev database
 
-Use this only when the database is empty:
+Use only for a fresh empty database:
 
 ```bash
 npm run db:init:dev
 ```
 
-### 5. Apply migrations
+### Apply dev migrations
 
 ```bash
 npm run db:migrate:dev
 ```
 
-Running it twice should skip already applied migrations.
+Running migrations twice should skip already applied files.
 
-### 6. Register dev slash commands
+### Run bot / API
 
-```bash
-npm run dev-deploy
-```
-
-### 7. Run dev bot
+Common scripts include:
 
 ```bash
 npm run dev
+npm run dev:api
+npm run build
+npm run start:api
 ```
+
+Exact process choice depends on whether you need the Discord bot, the API, or both.
 
 ---
 
-## 🚀 Production deploy
+## Production Deployment
 
-### Direct production start
-
-```bash
-npm run build
-npm run db:migrate:prod
-npm run prod-deploy
-npm run start
-```
-
-For a completely fresh production database, run this once before migrations:
-
-```bash
-npm run db:init:prod
-```
-
-### PM2 production flow
+Typical production backend flow:
 
 ```bash
 git pull
 npm install
-npm run db:migrate:prod
 npm run build
+npm run db:migrate:prod
 npm run prod-deploy
 pm2 restart all --update-env
 pm2 logs
 ```
 
-Raw PM2 helpers:
+If code depends on a new schema, migrations must be run before restarting production processes.
 
-```bash
-pm2 start ecosystem.config.cjs --only balkon-bot
-pm2 restart balkon-bot
-pm2 logs balkon-bot
-pm2 stop balkon-bot
-```
-
-Repository scripts:
+PM2 helpers:
 
 ```bash
 npm run pm2:start
@@ -359,331 +275,56 @@ npm run pm2:logs
 npm run pm2:stop
 ```
 
----
+Raw PM2 examples:
 
-## 🎥 OBS Agent mode
-
-For production with remote streamers, Balkon uses a standalone OBS Agent desktop app.
-
-### Why this exists
-
-The bot runs on a server. OBS Studio runs on the streamer's PC. Direct server → OBS connection is usually impossible because of NAT, routers and local networks.
-
-So the correct flow is:
-
-```text
-Discord /botmenu or /obs command
-      ↓
-Balkon bot on server
-      ↓
-OBS relay WebSocket
-      ↓
-Balkon OBS Agent on streamer PC
-      ↓
-Local OBS Studio ws://127.0.0.1:4455
-```
-
-### Streamer setup
-
-1. Install the standalone `balkon-obs-agent` desktop app.
-2. Enable OBS WebSocket in OBS Studio:
-
-   ```text
-   OBS Studio → Tools → WebSocket Server Settings
-   Enable WebSocket server
-   Port: 4455
-   ```
-
-3. In Discord, generate credentials:
-
-   ```text
-   /streamer register nickname:<name> primary:true
-   /streamer agent_pair nickname:<name>
-   ```
-
-4. Put the generated values into the desktop app:
-
-   ```env
-   OBS_AGENT_RELAY_URL=wss://venomancer.aleksandermilisenko23.thkit.ee/
-   OBS_AGENT_ID=<from Discord>
-   OBS_AGENT_TOKEN=<from Discord>
-   OBS_WEBSOCKET_URL=ws://127.0.0.1:4455
-   OBS_WEBSOCKET_PASSWORD=
-   ```
-
-5. Click **Connect**.
-6. Click **Test OBS**.
-7. Check status:
-
-   ```text
-   /streamer agent_show nickname:<name>
-   ```
-
-### `/botmenu → OBS`
-
-The OBS panel is an OBS Agent control panel.
-
-- It does **not** use server-side `OBS_WEBSOCKET_URL`.
-- If one streamer is registered, it auto-selects that streamer.
-- If multiple streamers are registered, it shows a streamer dropdown.
-- The primary streamer is selected by default.
-- Legacy direct `Config / Set config / Clear config` buttons are not shown in relay-agent mode.
-
-Normal OBS menu flow:
-
-```text
-/botmenu → OBS
-→ select streamer
-→ resolve streamer's OBS Agent
-→ send command through ObsRelayService
-→ OBS Agent executes command on local OBS
+```bash
+pm2 start ecosystem.config.cjs --only balkon-bot
+pm2 restart balkon-bot
+pm2 logs balkon-bot
+pm2 stop balkon-bot
 ```
 
 ---
 
-## 🧠 Project workflow
-
-<details open>
-<summary><strong>🕹️ Menu and button workflow</strong></summary>
-
-Interactive menu logic is centered around `/menu` and `/botmenu`.
-
-The menu keeps per-user session state, including:
-
-- current screen;
-- selected inventory item;
-- selected market listing;
-- selected craft recipe;
-- selected OBS streamer;
-- selected OBS scene;
-- selected OBS source;
-- short-lived OBS status/scenes/source cache.
-
-### General menu rules
-
-When changing screens:
-
-1. Update the session state.
-2. Persist the session.
-3. Re-render the current menu message.
-4. Use ephemeral replies where appropriate.
-5. Do not perform heavy operations unless the user explicitly opens that screen or clicks a refresh/action button.
-
-### Button workflow
-
-When adding a new button:
-
-1. Add a new `CommandDTO`.
-2. Register it in the constructor:
-
-   ```ts
-   this.buttons.set(this.someButton.toString(), this.someHandler);
-   ```
-
-3. Implement the handler.
-4. Update session state only inside the handler.
-5. Re-render through the existing render/update helpers.
-6. Add locale strings for all supported languages.
-7. Run:
-
-   ```bash
-   npm run build
-   ```
-
-### Select menu workflow
-
-When adding a new select menu:
-
-1. Add a new `CommandDTO`.
-2. Register it:
-
-   ```ts
-   this.stringSelectMenu.set(this.someSelect.toString(), this.someSelectHandler);
-   ```
-
-3. On selection:
-   - update the selected value in session state;
-   - clear dependent selections;
-   - clear related cache;
-   - re-render the current screen.
-
-Dependency examples:
-
-```text
-Changing OBS streamer
-→ clear selected OBS scene
-→ clear selected OBS source
-→ clear OBS status/scenes/source cache
-
-Changing OBS scene
-→ clear selected OBS source
-→ clear cached scene items
-```
-
-</details>
-
-<details>
-<summary><strong>🎬 OBS menu workflow</strong></summary>
-
-The normal OBS panel must use OBS Agent relay mode.
-
-Do not use direct `OBS_WEBSOCKET_URL` server-side configuration in the normal menu flow.
-
-### OBS panel behavior
-
-When opening the OBS panel:
-
-1. Load streamers for the current Discord guild.
-2. If no streamers exist, show:
-
-   ```text
-   No streamers registered. Use /streamer register first.
-   ```
-
-3. If one streamer exists, select it automatically.
-4. If multiple streamers exist, render a streamer select dropdown.
-5. Default selection order:
-   - previously selected streamer if still valid;
-   - primary streamer;
-   - first streamer.
-
-The OBS panel should display:
-
-- selected streamer nickname;
-- primary marker if applicable;
-- OBS Agent id;
-- agent online/offline status;
-- control mode: `relay-agent`;
-- OBS endpoint returned by the agent if available;
-- current scene;
-- selected scene;
-- selected source.
-
-### OBS commands
-
-All normal OBS menu actions must route through the selected streamer's OBS Agent.
-
-Relay commands:
-
-```text
-obs.getStatus
-obs.listScenes
-obs.listSceneItems
-obs.switchScene
-obs.setSourceVisibility
-obs.setTextInputText
-obs.triggerMediaInputAction
-```
-
-Do not call direct `ObsService` methods from the normal OBS menu panel.
-
-### Scene and source rules
-
-Only fetch scene items after a scene is selected.
-
-```text
-select scene
-→ clear selected source
-→ request obs.listSceneItems for selected scene
-→ render source dropdown
-```
-
-### Error cases
-
-The OBS panel must show clear errors for:
-
-- missing Discord guild id;
-- no registered streamers;
-- selected streamer not found;
-- selected streamer has no OBS Agent configured;
-- selected OBS Agent is offline;
-- OBS command timeout;
-- scene not selected;
-- source not selected;
-- OBS command failure.
-
-</details>
-
-<details>
-<summary><strong>📡 OBS Agent relay workflow</strong></summary>
-
-The relay keeps active WebSocket connections to OBS Agents.
-
-### Agent connection
-
-```text
-agent connects to relay
-→ agent sends hello with agentId and agentToken
-→ relay validates credentials
-→ relay registers socket
-→ relay sends hello_ack
-```
-
-### Command flow
-
-```text
-bot creates requestId
-→ bot sends command to agent
-→ relay stores pending request
-→ agent executes OBS command
-→ agent returns command_result
-→ relay resolves/rejects pending request
-```
-
-### Heartbeat flow
-
-```text
-agent sends ping
-→ relay responds pong
-```
-
-Heartbeat prevents idle WebSocket proxy timeouts. No heartbeat = proxy might go afk like 0/10 mid pudge. 🪝
-
-</details>
-
----
-
-## 🗄️ Database workflow
+## Database Workflow
 
 The project uses MySQL.
 
-Current database responsibilities include:
+Schema areas include:
 
-- Discord guild/member/role/channel data.
-- Command permissions.
-- Item templates, rarities, inventory, market, and bot shop.
-- Craft recipes and ingredients.
-- Streamers and guild-streamer bindings.
-- OBS Agent bindings through bot settings.
-- Service item OBS actions.
-- Twitch notification channels.
+- members and Discord profile cache
+- guilds and Discord server metadata
+- sessions
+- item templates, rarities and types
+- member inventory items
+- market listings
+- bot shop entries
+- craft recipes and ingredients
+- jobs and member job cooldowns
+- streamers and streamer access
+- streamer applications
+- streamer services
+- OBS media actions
+- bot command queue
+- notifications
+- admin economy adjustments
 
-### Fresh database setup
+### Baseline schema
 
-For a fresh development database:
+Fresh database baseline is stored in:
+
+```text
+sql/tables.sql
+```
+
+Fresh DB setup:
 
 ```bash
 npm run db:init:dev
-```
-
-For a fresh production database:
-
-```bash
 npm run db:init:prod
 ```
 
-`db:init` creates the baseline schema from `sql/tables.sql`.
-
-Use it for fresh databases only.
-
-### Migration workflow
-
-For existing databases, use migrations:
-
-```bash
-npm run db:migrate:dev
-npm run db:migrate:prod
-```
+### Migrations
 
 Migrations live in:
 
@@ -691,204 +332,282 @@ Migrations live in:
 sql/migrations/
 ```
 
-Every database structure change must be tracked by a new migration file.
-
-Examples:
-
-- creating a new table;
-- adding a column;
-- adding an index;
-- changing constraints;
-- moving data into a new structure;
-- creating a new relation table.
-
-When changing the database schema:
-
-1. Update `sql/tables.sql` so fresh databases have the correct baseline schema.
-2. Add a new migration file:
-
-   ```text
-   sql/migrations/00X_description.sql
-   ```
-
-3. Test locally:
-
-   ```bash
-   npm run db:migrate:dev
-   npm run build
-   ```
-
-4. Commit SQL and code changes together.
-5. On production:
-
-   ```bash
-   git pull
-   npm run db:migrate:prod
-   npm run build
-   pm2 restart all --update-env
-   ```
-
-### Migration rules
-
-- Never edit old migrations after they were applied to a shared or production database.
-- Never reuse migration numbers.
-- Prefer additive migrations.
-- Destructive migrations must be reviewed manually.
-- Do not drop production data silently.
-- Keep migrations idempotent where practical.
-- Run migrations before restarting production bot when new code depends on new schema.
-
-### Future OBS Agent table
-
-Currently OBS Agent binding is stored through bot settings.
-
-Future improvement:
-
-```sql
-CREATE TABLE streamer_obs_agents (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  streamer_id INT NOT NULL,
-  agent_id VARCHAR(128) NOT NULL UNIQUE,
-  agent_token_hash VARCHAR(255) NOT NULL,
-  display_name VARCHAR(128) NULL,
-  is_default BOOLEAN NOT NULL DEFAULT FALSE,
-  last_seen_at TIMESTAMP NULL,
-  revoked_at TIMESTAMP NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (streamer_id) REFERENCES streamers(id) ON DELETE CASCADE
-);
-```
-
-This would allow:
-
-- multiple agents per streamer;
-- named agents, for example `Home PC`, `Laptop`, `Studio`;
-- default agent selection;
-- token revocation;
-- last seen tracking;
-- better auditing.
-
-Do not add this table without a migration.
-
----
-
-## 🧪 Manual test checklist
-
-<details>
-<summary><strong>After changing OBS/menu/relay logic</strong></summary>
-
-```text
-[ ] npm run build passes
-[ ] bot deploy succeeds
-[ ] desktop OBS Agent connects to relay
-[ ] OBS Agent connects to local OBS
-[ ] /streamer agent_show shows agent online
-[ ] /botmenu opens
-[ ] OBS panel selects primary streamer by default
-[ ] OBS panel shows streamer/agent status
-[ ] OBS panel does not ask for OBS_WEBSOCKET_URL
-[ ] scenes refresh works
-[ ] scene switching works
-[ ] source list loads only after scene selection
-[ ] source visibility toggle works
-[ ] text update works if source is text input
-[ ] media action works if source is media input
-[ ] agent Recent Events shows incoming commands
-```
-
-</details>
-
-<details>
-<summary><strong>After changing database schema</strong></summary>
-
-```text
-[ ] new migration file exists
-[ ] sql/tables.sql updated if baseline changed
-[ ] npm run db:migrate:dev passes
-[ ] npm run db:migrate:dev second run skips applied migrations
-[ ] npm run build passes
-[ ] prod migration applied before restart
-```
-
-</details>
-
-<details>
-<summary><strong>After changing desktop agent protocol</strong></summary>
-
-```text
-[ ] main bot relay updated
-[ ] desktop agent updated
-[ ] main bot deployed first
-[ ] agent release created second
-[ ] old agent behavior considered
-[ ] auto-update assets uploaded
-```
-
-</details>
-
----
-
-## 📦 OBS Agent release workflow
-
-The desktop OBS Agent is released separately in `balkon-obs-agent`.
-
-For a patch release:
+Migration commands:
 
 ```bash
-cd balkon-obs-agent
-npm version patch --no-git-tag-version
-npm run dist
-git add .
-git commit -m "chore: release v0.1.X"
-git push
+npm run db:migrate:dev
+npm run db:migrate:prod
 ```
 
-Create a GitHub Release:
+Rules:
+
+1. Every schema change needs a migration.
+2. Update `sql/tables.sql` when baseline schema changes.
+3. Never edit a migration that has already been applied to production.
+4. Editing a failed/unapplied migration is acceptable only before it is recorded in `schema_migrations`.
+5. Keep migrations additive when possible.
+6. Review destructive migrations manually.
+7. Run migrations before deploying code that depends on new columns/tables.
+
+### Recent production migration note
+
+During production deployment, migration `018_create_jobs.sql` initially failed because it used `BIGINT` FK columns while the existing production `members.id` and `items.id` columns were `INT`. The migration was fixed before being applied by aligning jobs-related IDs/FKs to `INT`.
+
+This is an important deployment lesson:
 
 ```text
-Tag: v0.1.X
-Title: Balkon OBS Agent v0.1.X
+Foreign key column types must match referenced column types exactly in MySQL.
 ```
 
-Upload:
+After the fix, production migrations completed successfully.
 
-```text
-Balkon-OBS-Agent-Setup-0.1.X.exe
-Balkon-OBS-Agent-Setup-0.1.X.exe.blockmap
-latest.yml
+### Schema migration tracking
+
+The migration runner tracks applied migrations in `schema_migrations` using the `migration_name` column.
+
+Useful production checks:
+
+```sql
+SELECT *
+FROM schema_migrations
+WHERE migration_name = '018_create_jobs.sql';
+
+SHOW TABLES LIKE 'jobs';
+SHOW TABLES LIKE 'member_job_cooldowns';
 ```
-
-Every new desktop app version must have:
-
-- updated `package.json` version;
-- matching GitHub tag;
-- matching installer filename;
-- matching `latest.yml`.
 
 ---
 
-## 🧪 Diploma showcase flow
+## OBS Relay and OBS Agent
 
-Recommended demo route:
+Balkon uses an OBS relay and local OBS Agent to control OBS Studio safely.
 
-1. Run `npm run dev`.
-2. Register slash commands with `npm run dev-deploy`.
-3. Create one rarity with `/raritycreate`.
-4. Create an item template with `/itemcreate`, including an `image_url`.
-5. Inspect it with `/iteminfo` or `/itemcatalog`.
-6. Give the item to a test user with `/itemgive`.
-7. Show `/inventory` and `/itemview`.
-8. Put one item on the market with `/market sell` and buy it from another user with `/market buy`.
-9. Add one fixed bot listing with `/botshop add`, then demonstrate `/botshop buy` and `/botshop sell`.
-10. Open `/menu` and show balance, inventory, market, bot shop and admin shortcuts.
-11. Create one craft recipe and show `/craft` consuming materials into a crafted result item.
-12. Start `balkon-obs-agent`, connect it to OBS, then show `/botmenu → OBS` scene control.
+Reason:
 
-<div align="center">
+- backend runs on a server
+- OBS Studio runs on the streamer's local PC
+- direct public access to OBS WebSocket is unsafe
+- NAT/router restrictions make direct server-to-OBS connections unreliable
 
-### 🏴‍☠️ End of README. Go farm items, not technical debt.
+Correct flow:
 
-<img src="https://media.tenor.com/chNGPcAXt4QAAAAd/pirat.gif" width="260" />
+```text
+website / Discord bot
+      ↓
+backend API / service layer
+      ↓
+OBS relay WebSocket
+      ↓
+Balkon OBS Agent on streamer PC
+      ↓
+local OBS Studio WebSocket
+```
 
-</div>
+OBS-related command categories include:
+
+- get OBS status
+- list scenes
+- switch scenes
+- list scene items
+- set source visibility
+- update text input
+- trigger media input actions
+- show configured OBS media/effects
+
+The agent repository contains packaging, tray behavior and auto-update documentation.
+
+---
+
+## Website Integration
+
+The web dashboard lives in:
+
+```text
+phenibut645/balkon-website
+```
+
+The website uses the backend API and does not store Discord secrets.
+
+Website calls should:
+
+- use API helpers
+- include credentials for session cookies
+- rely on backend permission checks
+- keep the backend as the source of truth for ownership, cooldowns and permissions
+
+Implemented dashboard areas include:
+
+- overview
+- profile
+- inventory
+- market
+- bot shop
+- OBS shop
+- OBS history
+- craft
+- jobs
+- notifications
+- streamer application
+- Streamer Studio
+- admin dashboard
+- admin items
+- admin jobs
+- admin streamers/applications
+
+---
+
+## Development Workflow
+
+### Backend/API change checklist
+
+```text
+[ ] identify service layer owner
+[ ] add/modify service method
+[ ] add/modify route file
+[ ] avoid large dashboardRoutes rewrites
+[ ] add validation and stable error codes
+[ ] update TypeScript types if needed
+[ ] update migrations/tables.sql if schema changes
+[ ] npm run build
+```
+
+Prefer small route modules under:
+
+```text
+src/api/routes/dashboard/
+```
+
+Avoid broad manual edits of large central route files unless required.
+
+### Database change checklist
+
+```text
+[ ] add migration under sql/migrations
+[ ] update sql/tables.sql
+[ ] update DB TypeScript types if needed
+[ ] run npm run db:migrate:dev
+[ ] run npm run build
+[ ] document production recovery notes for risky migrations
+```
+
+### Website-dependent backend change checklist
+
+```text
+[ ] define response shape
+[ ] include ok/code/message/data consistently
+[ ] preserve credentials/session auth
+[ ] do not expose tokens/secrets
+[ ] test with website lint/build in balkon-website if frontend is changed
+```
+
+---
+
+## Manual Test Checklist
+
+### Backend/API
+
+```text
+[ ] npm run build passes
+[ ] migrations run locally
+[ ] migrations second run skips applied files
+[ ] /api/health works
+[ ] /api/me works with session
+[ ] protected routes reject unauthenticated access
+```
+
+### Economy
+
+```text
+[ ] inventory loads
+[ ] market loads
+[ ] bot shop loads
+[ ] craft recipe executes or returns missing requirement error
+[ ] job action rewards ODM and respects cooldown
+[ ] item localization fields are returned where needed
+```
+
+### Streamer / OBS
+
+```text
+[ ] streamer application submit works
+[ ] admin approval creates access
+[ ] archived streamer disappears from active access lists
+[ ] OBS Agent pairing/status works
+[ ] OBS control opens through website
+[ ] OBS shop service/effect can be triggered when configured
+[ ] OBS history opens
+```
+
+### Production
+
+```text
+[ ] git pull
+[ ] npm install if dependencies changed
+[ ] npm run build
+[ ] npm run db:migrate:prod
+[ ] pm2 restart all --update-env
+[ ] pm2 logs show no startup errors
+```
+
+---
+
+## Diploma Documentation Context
+
+The project is used for a graduation thesis at Tallinna Tööstushariduskeskus.
+
+Student:
+
+```text
+Aleksander Milišenko, TARpv23
+```
+
+Supervisor:
+
+```text
+Irina Merkulova
+```
+
+Thesis title:
+
+```text
+Discordi bot ja veebirakenduse arendamine OBS Studio haldamiseks ja Discordiserverite administreerimiseks
+```
+
+Recommended documentation framing:
+
+- Discord bot is the Discord-side automation layer.
+- Backend API is the business logic and data layer.
+- Website is the visual dashboard/management layer.
+- OBS Agent is the local bridge to OBS Studio.
+- MySQL migrations demonstrate versioned database design.
+- Economy/inventory/market/craft/jobs are community engagement and server administration modules.
+- Streamer applications, Streamer Studio and OBS tools connect the system to OBS Studio management.
+
+Recommended demo/screenshots:
+
+1. Discord OAuth2 login
+2. user overview
+3. inventory with localized item data
+4. market
+5. craft
+6. jobs and cooldown
+7. streamer application
+8. admin streamer applications
+9. admin jobs
+10. admin items with RU/EN/ET fields
+11. Streamer Studio list
+12. OBS Agent setup/status
+13. OBS control
+14. OBS shop
+15. OBS history
+16. production migration result
+
+---
+
+## Related Documentation
+
+Read these repository READMEs together for full context:
+
+- backend/API/bot/DB/relay: `phenibut645/balkon`
+- website/dashboard: `phenibut645/balkon-website`
+- local OBS desktop app: `phenibut645/balkon-obs-agent`
