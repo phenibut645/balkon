@@ -2228,7 +2228,7 @@ export class ItemService {
 
             return {
                 success: true,
-                data: rows.map(this.mapInventoryRow),
+                data: rows.map(row => this.mapInventoryRow(row)),
             };
         } catch (error) {
             return DataBaseHandler.errorHandling(error);

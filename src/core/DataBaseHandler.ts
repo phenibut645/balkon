@@ -135,8 +135,6 @@ export class DataBaseHandler {
                 conditions = keys.map(key => `${key} = ?`).join(" AND ");
                 values = keys.map(key => whereColumns[key]);
             }
-            console.log("EUU", `SELECT ${columns ? columns.join(", ") : "*"} FROM ${table} ${whereColumns ? `WHERE ${conditions}` : ""}`)
-            console.log("AAAAND", values)
             const [rows] = await pool.query<RowDataPacket[]>(`SELECT ${columns ? columns.join(", ") : "*"} FROM ${table} ${whereColumns ? `WHERE ${conditions}` : ""}`, values);
             return {
                 success: true,
