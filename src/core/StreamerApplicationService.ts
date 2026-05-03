@@ -25,6 +25,8 @@ export interface StreamerApplicationView {
   description: string | null;
   status: StreamerApplicationStatus;
   streamerId: number | null;
+  streamerActive: boolean | null;
+  streamerArchivedAt: string | null;
   rejectionReason: string | null;
   reviewedAt: string | null;
   createdAt: string;
@@ -53,6 +55,8 @@ interface StreamerApplicationRow extends RowDataPacket {
   status: StreamerApplicationStatus;
   reviewed_by_member_id: number | null;
   streamer_id: number | null;
+  streamer_active: number | boolean | null;
+  streamer_archived_at: Date | string | null;
   reviewed_at: Date | string | null;
   rejection_reason: string | null;
   created_at: Date | string;
@@ -273,12 +277,20 @@ export class StreamerApplicationService {
         sa.status,
         sa.reviewed_by_member_id,
         sa.streamer_id,
+        CASE
+          WHEN sa.streamer_id IS NULL THEN NULL
+          WHEN s.id IS NULL THEN 0
+          WHEN s.archived_at IS NULL THEN 1
+          ELSE 0
+        END AS streamer_active,
+        s.archived_at AS streamer_archived_at,
         sa.reviewed_at,
         sa.rejection_reason,
         sa.created_at,
         sa.updated_at
       FROM streamer_applications AS sa
-      INNER JOIN members AS applicant ON applicant.id = sa.applicant_member_id`;
+      INNER JOIN members AS applicant ON applicant.id = sa.applicant_member_id
+      LEFT JOIN streamers AS s ON s.id = sa.streamer_id`;
   }
 
   private normalizeSubmitInput(payload: CreateStreamerApplicationInput): NormalizedStreamerApplicationInput {
@@ -365,6 +377,9 @@ export class StreamerApplicationService {
     const applicantDiscordId = row.applicant_discord_id ?? "";
     const applicantGlobalName = row.applicant_global_name ?? null;
     const applicantUsername = row.applicant_username ?? null;
+    const streamerActive = row.streamer_active === null || row.streamer_active === undefined
+      ? null
+      : Boolean(Number(row.streamer_active));
 
     return {
       id: Number(row.id),
@@ -374,6 +389,8 @@ export class StreamerApplicationService {
       description: row.description,
       status: row.status,
       streamerId: row.streamer_id === null ? null : Number(row.streamer_id),
+      streamerActive,
+      streamerArchivedAt: this.formatDate(row.streamer_archived_at),
       rejectionReason: row.rejection_reason,
       reviewedAt: this.formatDate(row.reviewed_at),
       createdAt: this.formatDate(row.created_at) ?? new Date(0).toISOString(),
