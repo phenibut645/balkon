@@ -351,8 +351,13 @@ CREATE INDEX idx_admin_economy_adjustments_admin_created
 CREATE TABLE streamers (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nickname VARCHAR(255) UNIQUE NOT NULL,
-    twitch_url VARCHAR(255) UNIQUE NOT NULL
+    twitch_url VARCHAR(255) UNIQUE NOT NULL,
+    archived_at TIMESTAMP NULL,
+    archived_by_member_id INT NULL,
+    FOREIGN KEY (archived_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 );
+
+CREATE INDEX idx_streamers_archived_at ON streamers(archived_at);
 
 CREATE TABLE streamer_owners (
     id INT AUTO_INCREMENT PRIMARY KEY,

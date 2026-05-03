@@ -358,6 +358,51 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   await registerStreamerStudioRoutes(app);
   await registerStreamerApplicationRoutes(app);
 
+  app.get("/admin/streamers", { preHandler: [requireAuth, requireBotAdmin] }, async () => {
+    try {
+      const data = await streamerService.listAdminStreamers();
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      return serviceErrorResponse(
+        "ADMIN_STREAMERS_LOAD_FAILED",
+        "Failed to load streamers.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.delete("/admin/streamers/:streamerId", { preHandler: [requireAuth, requireBotAdmin] }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const response = await streamerService.archiveStreamerById({
+      streamerId,
+      archivedByDiscordId: request.authUser!.discordId,
+    });
+
+    if (!response.success) {
+      return serviceErrorResponse(
+        "ADMIN_STREAMER_ARCHIVE_FAILED",
+        response.error.message ?? "Failed to archive streamer.",
+        response.error,
+      );
+    }
+
+    return {
+      ok: true,
+      data: response.data,
+    };
+  });
+
   app.get("/me", { preHandler: requireAuth }, async request => ({
     ok: true,
     me: {

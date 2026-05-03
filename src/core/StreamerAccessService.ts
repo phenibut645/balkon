@@ -48,6 +48,7 @@ type StreamerRow = RowDataPacket & {
   id: number;
   nickname: string;
   twitch_url: string;
+  archived_at?: Date | string | null;
 };
 
 type OwnerRow = RowDataPacket & {
@@ -278,6 +279,11 @@ export class StreamerAccessService {
   }
 
   async canManageStreamer(discordId: string, streamerId: number): Promise<boolean> {
+    const streamer = await this.getStreamerById(streamerId);
+    if (!streamer) {
+      return false;
+    }
+
     if (this.isBotAdmin(discordId)) {
       return true;
     }
@@ -300,6 +306,11 @@ export class StreamerAccessService {
   }
 
   async canControlStreamer(discordId: string, streamerId: number): Promise<boolean> {
+    const streamer = await this.getStreamerById(streamerId);
+    if (!streamer) {
+      return false;
+    }
+
     if (this.isBotAdmin(discordId)) {
       return true;
     }
@@ -336,7 +347,10 @@ export class StreamerAccessService {
   }
 
   private async getStreamerById(streamerId: number): Promise<StreamerRow | null> {
-    const [rows] = await pool.query<StreamerRow[]>(`SELECT id, nickname, twitch_url FROM streamers WHERE id = ? LIMIT 1`, [streamerId]);
+    const [rows] = await pool.query<StreamerRow[]>(
+      `SELECT id, nickname, twitch_url, archived_at FROM streamers WHERE id = ? AND archived_at IS NULL LIMIT 1`,
+      [streamerId],
+    );
     return rows[0] ?? null;
   }
 
@@ -380,7 +394,9 @@ export class StreamerAccessService {
 
   private async listStreamersByIds(streamerIds: number[] | null): Promise<StreamerRow[]> {
     if (streamerIds === null) {
-      const [rows] = await pool.query<StreamerRow[]>(`SELECT id, nickname, twitch_url FROM streamers ORDER BY nickname ASC, id ASC`);
+      const [rows] = await pool.query<StreamerRow[]>(
+        `SELECT id, nickname, twitch_url, archived_at FROM streamers WHERE archived_at IS NULL ORDER BY nickname ASC, id ASC`,
+      );
       return rows;
     }
 
@@ -390,7 +406,7 @@ export class StreamerAccessService {
 
     const placeholders = streamerIds.map(() => "?").join(",");
     const [rows] = await pool.query<StreamerRow[]>(
-      `SELECT id, nickname, twitch_url FROM streamers WHERE id IN (${placeholders}) ORDER BY nickname ASC, id ASC`,
+      `SELECT id, nickname, twitch_url, archived_at FROM streamers WHERE archived_at IS NULL AND id IN (${placeholders}) ORDER BY nickname ASC, id ASC`,
       streamerIds,
     );
     return rows;

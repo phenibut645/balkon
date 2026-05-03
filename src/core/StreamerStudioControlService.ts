@@ -390,7 +390,7 @@ export class StreamerStudioControlService {
 
   private async ensureStreamerExists(streamerId: number): Promise<void> {
     const [rows] = await pool.query<StreamerRow[]>(
-      `SELECT id FROM streamers WHERE id = ? LIMIT 1`,
+      `SELECT id FROM streamers WHERE id = ? AND archived_at IS NULL LIMIT 1`,
       [streamerId],
     );
     if (!rows[0]) {

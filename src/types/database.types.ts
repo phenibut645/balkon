@@ -151,7 +151,9 @@ export interface ItemPublicMarketDB extends DefaultDBTable {
 
 export interface StreamersDB extends DefaultDBTable {
     nickname: string,
-    twitch_url: string
+    twitch_url: string,
+    archived_at?: number | Date | null,
+    archived_by_member_id?: number | null
 }
 
 export type StreamerOwnerRole = "owner" | "manager";

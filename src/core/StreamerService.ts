@@ -24,6 +24,18 @@ interface StreamerRow extends RowDataPacket {
     id: number;
     nickname: string;
     twitch_url: string;
+    archived_at: Date | string | null;
+    archived_by_member_id: number | null;
+}
+
+interface AdminStreamerListRow extends RowDataPacket {
+    id: number;
+    nickname: string;
+    twitch_url: string;
+    archived_at: Date | string | null;
+    created_at: Date | string | null;
+    updated_at: Date | string | null;
+    owner_count: number;
 }
 
 interface ItemServiceActionRow extends RowDataPacket {
@@ -96,6 +108,18 @@ export interface StreamerObsAgentBindingView {
     tokenPresent: true;
 }
 
+export interface AdminStreamerListView {
+    streamerId: number;
+    nickname: string;
+    twitchUrl: string | null;
+    ownerCount: number;
+    obsAgentConfigured: boolean;
+    obsAgentOnline: boolean;
+    createdAt: string | null;
+    updatedAt: string | null;
+    archived: boolean;
+}
+
 export interface PrimaryGuildStreamerAgentView {
     discordGuildId: string;
     streamerId: number;
@@ -153,11 +177,15 @@ export class StreamerService {
             const normalizedTwitchUrl = this.normalizeTwitchUrl(input.twitchUrl, normalizedNickname);
 
             let streamerId: number;
-            const existingStreamer = await DataBaseHandler.getInstance().getFromTable<StreamersDB>("streamers", { nickname: normalizedNickname });
-            if (DataBaseHandler.isSuccess(existingStreamer) && existingStreamer.data.length) {
-                streamerId = existingStreamer.data[0].id;
+            const existingStreamer = await this.findStreamerByNickname(normalizedNickname, true);
+            if (existingStreamer) {
+                streamerId = existingStreamer.id;
                 await pool.query(
-                    `UPDATE streamers SET twitch_url = ? WHERE id = ?`,
+                    `UPDATE streamers
+                     SET twitch_url = ?,
+                         archived_at = NULL,
+                         archived_by_member_id = NULL
+                     WHERE id = ?`,
                     [normalizedTwitchUrl, streamerId]
                 );
             } else {
@@ -239,6 +267,7 @@ export class StreamerService {
                  INNER JOIN guilds AS g ON g.id = gs.guild_id
                  INNER JOIN streamers AS s ON s.id = gs.streamer_id
                  WHERE g.ds_guild_id = ?
+                   AND s.archived_at IS NULL
                  ORDER BY gs.is_primary DESC, s.nickname ASC`,
                 [discordGuildId]
             );
@@ -421,6 +450,85 @@ export class StreamerService {
 
     async ensureStreamerExistsById(streamerId: number): Promise<void> {
         await this.requireStreamerById(streamerId);
+    }
+
+    async listAdminStreamers(): Promise<AdminStreamerListView[]> {
+        const [rows] = await pool.query<AdminStreamerListRow[]>(
+            `SELECT
+                s.id,
+                s.nickname,
+                s.twitch_url,
+                s.archived_at,
+                MIN(gs.created_at) AS created_at,
+                MAX(gs.created_at) AS updated_at,
+                COUNT(DISTINCT so.member_id) AS owner_count
+             FROM streamers AS s
+             LEFT JOIN guild_streamers AS gs ON gs.streamer_id = s.id
+             LEFT JOIN streamer_owners AS so ON so.streamer_id = s.id
+             WHERE s.archived_at IS NULL
+             GROUP BY s.id, s.nickname, s.twitch_url, s.archived_at
+             ORDER BY s.nickname ASC, s.id ASC`
+        );
+
+        const bindings = await this.loadStreamerAgentBindings(rows.map(row => Number(row.id)));
+
+        return rows.map(row => {
+            const streamerId = Number(row.id);
+            const binding = bindings.get(streamerId) ?? null;
+
+            return {
+                streamerId,
+                nickname: row.nickname,
+                twitchUrl: row.twitch_url ?? null,
+                ownerCount: Number(row.owner_count ?? 0),
+                obsAgentConfigured: Boolean(binding?.agentId),
+                obsAgentOnline: binding ? obsRelayService.isAgentConnected(binding.agentId) : false,
+                createdAt: this.toIsoTimestampOrNull(row.created_at),
+                updatedAt: this.toIsoTimestampOrNull(row.updated_at),
+                archived: false,
+            };
+        });
+    }
+
+    async archiveStreamerById(input: { streamerId: number; archivedByDiscordId: string }): Promise<DBResponse<{ streamerId: number; archived: true }>> {
+        try {
+            const streamer = await this.requireStreamerById(input.streamerId, true);
+            if (streamer.archived_at) {
+                return {
+                    success: true,
+                    data: {
+                        streamerId: streamer.id,
+                        archived: true,
+                    },
+                };
+            }
+
+            const actor = await this.ensureMemberByDiscordId(input.archivedByDiscordId);
+            const binding = await this.getStreamerAgentBindingByStreamerId(streamer.id);
+
+            await pool.query(
+                `UPDATE streamers
+                 SET archived_at = CURRENT_TIMESTAMP,
+                     archived_by_member_id = ?
+                 WHERE id = ? AND archived_at IS NULL`,
+                [actor.data.id, streamer.id]
+            );
+
+            await pool.query(`DELETE FROM bot_settings WHERE setting_key = ?`, [this.getStreamerAgentBindingKey(streamer.id)]);
+            if (binding?.agentId) {
+                await pool.query(`DELETE FROM bot_settings WHERE setting_key = ?`, [this.getAgentCredentialKey(binding.agentId)]);
+            }
+
+            return {
+                success: true,
+                data: {
+                    streamerId: streamer.id,
+                    archived: true,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
+        }
     }
 
     async getStreamerObsAgentSetupByStreamerId(streamerId: number): Promise<DBResponse<StreamerObsAgentSetupView>> {
@@ -1054,9 +1162,12 @@ export class StreamerService {
         return listResponse.data.find(streamer => streamer.isPrimary) ?? listResponse.data[0];
     }
 
-    private async requireStreamerById(streamerId: number): Promise<StreamerRow> {
+    private async requireStreamerById(streamerId: number, includeArchived = false): Promise<StreamerRow> {
         const [rows] = await pool.query<StreamerRow[]>(
-            `SELECT id, nickname, twitch_url FROM streamers WHERE id = ? LIMIT 1`,
+            `SELECT id, nickname, twitch_url, archived_at, archived_by_member_id
+             FROM streamers
+             WHERE id = ? ${includeArchived ? "" : "AND archived_at IS NULL"}
+             LIMIT 1`,
             [streamerId]
         );
 
@@ -1065,6 +1176,18 @@ export class StreamerService {
         }
 
         return rows[0];
+    }
+
+    private async findStreamerByNickname(nickname: string, includeArchived = false): Promise<StreamerRow | null> {
+        const [rows] = await pool.query<StreamerRow[]>(
+            `SELECT id, nickname, twitch_url, archived_at, archived_by_member_id
+             FROM streamers
+             WHERE nickname = ? ${includeArchived ? "" : "AND archived_at IS NULL"}
+             LIMIT 1`,
+            [nickname]
+        );
+
+        return rows[0] ?? null;
     }
 
     private async ensureGuildByDiscordId(discordGuildId: string): Promise<DBResponseSuccess<GuildsDB>> {
@@ -1163,6 +1286,7 @@ export class StreamerService {
              INNER JOIN guilds AS g ON g.id = gs.guild_id
              INNER JOIN streamers AS s ON s.id = gs.streamer_id
              WHERE gs.guild_id = ? AND gs.streamer_id = ?
+               AND s.archived_at IS NULL
              LIMIT 1`,
             [guildId, streamerId]
         );
@@ -1284,6 +1408,19 @@ export class StreamerService {
         );
 
         return rows[0]?.setting_value ? String(rows[0].setting_value) : null;
+    }
+
+    private toIsoTimestampOrNull(value: Date | string | null | undefined): string | null {
+        if (!value) {
+            return null;
+        }
+
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
     }
 
     private async ensureStreamerOwner(streamerId: number, memberId: number): Promise<void> {
