@@ -2,6 +2,7 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
 import { DataBaseHandler, DBResponse, DBResponseSuccess } from "./DataBaseHandler.js";
+import { NotificationService } from "./NotificationService.js";
 import { CraftRecipeIngredientsDB, CraftRecipesDB, ItemGeneralStoreDB, ItemPublicMarketDB, ItemRaritiesDB, ItemsDB, ItemTypesDB, MemberItemsDB, MembersDB } from "../types/database.types.js";
 
 interface ItemTemplateRow extends RowDataPacket {
@@ -1898,6 +1899,16 @@ export class ItemService {
             );
 
             await connection.commit();
+            await this.createSellerMarketSaleNotification({
+                sellerMemberId: Number(seller.id),
+                sellerDiscordId: listing.seller_ds_member_id,
+                buyerDiscordId,
+                buyerMemberId: Number(buyer.data.id),
+                listingId,
+                inventoryItemId: Number(listing.inventory_item_id),
+                itemName: String(listing.item_name),
+                price: Number(listing.price),
+            });
             return {
                 success: true,
                 data: {
@@ -1911,6 +1922,37 @@ export class ItemService {
             return DataBaseHandler.errorHandling(error);
         } finally {
             connection?.release();
+        }
+    }
+
+    private async createSellerMarketSaleNotification(input: {
+        sellerMemberId: number;
+        sellerDiscordId: string;
+        buyerDiscordId: string;
+        buyerMemberId: number;
+        listingId: number;
+        inventoryItemId: number;
+        itemName: string;
+        price: number;
+    }): Promise<void> {
+        try {
+            await NotificationService.getInstance().createForMember(input.sellerMemberId, {
+                type: "market_sale",
+                severity: "success",
+                title: "Лот продан",
+                body: `${input.itemName} продан за ${input.price} ODM. Покупатель: ${input.buyerDiscordId}.`,
+                metadataJson: {
+                    listingId: input.listingId,
+                    inventoryItemId: input.inventoryItemId,
+                    itemName: input.itemName,
+                    price: input.price,
+                    sellerDiscordId: input.sellerDiscordId,
+                    buyerDiscordId: input.buyerDiscordId,
+                },
+                createdByMemberId: input.buyerMemberId,
+            });
+        } catch (error) {
+            console.error("Failed to create seller market sale notification", error);
         }
     }
 
