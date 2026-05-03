@@ -23,8 +23,14 @@ interface InventoryRow extends RowDataPacket {
     inventory_item_id: number;
     owner_member_id: number;
     owner_ds_member_id: string;
+    owner_discord_username: string | null;
+    owner_discord_global_name: string | null;
+    owner_discord_avatar_url: string | null;
     original_owner_member_id: number | null;
     original_owner_ds_member_id: string | null;
+    original_owner_discord_username: string | null;
+    original_owner_discord_global_name: string | null;
+    original_owner_discord_avatar_url: string | null;
     obtained_at: Date;
     tier: number;
     item_template_id: number;
@@ -44,8 +50,14 @@ interface PublicMarketRow extends RowDataPacket {
     listing_id: number;
     price: number;
     seller_ds_member_id: string;
+    seller_discord_username: string | null;
+    seller_discord_global_name: string | null;
+    seller_discord_avatar_url: string | null;
     inventory_item_id: number;
     original_owner_ds_member_id: string | null;
+    original_owner_discord_username: string | null;
+    original_owner_discord_global_name: string | null;
+    original_owner_discord_avatar_url: string | null;
     obtained_at: Date;
     tier: number;
     item_template_id: number;
@@ -104,7 +116,11 @@ export interface ItemRarityView {
 export interface InventoryItemView {
     inventoryItemId: number;
     ownerDiscordId: string;
+    ownerDisplayName: string;
+    ownerAvatarUrl: string | null;
     originalOwnerDiscordId: string | null;
+    originalOwnerDisplayName: string | null;
+    originalOwnerAvatarUrl: string | null;
     obtainedAt: Date;
     tier: number;
     itemTemplateId: number;
@@ -123,6 +139,8 @@ export interface InventoryItemView {
 export interface PublicMarketListingView extends InventoryItemView {
     listingId: number;
     sellerDiscordId: string;
+    sellerDisplayName: string;
+    sellerAvatarUrl: string | null;
     price: number;
 }
 
@@ -1731,8 +1749,14 @@ export class ItemService {
                     ipm.id AS listing_id,
                     ipm.price,
                     seller.ds_member_id AS seller_ds_member_id,
+                    seller.discord_username AS seller_discord_username,
+                    seller.discord_global_name AS seller_discord_global_name,
+                    seller.discord_avatar_url AS seller_discord_avatar_url,
                     mi.id AS inventory_item_id,
                     original_owner.ds_member_id AS original_owner_ds_member_id,
+                    original_owner.discord_username AS original_owner_discord_username,
+                    original_owner.discord_global_name AS original_owner_discord_global_name,
+                    original_owner.discord_avatar_url AS original_owner_discord_avatar_url,
                     mi.obtained_at,
                     mi.tier,
                     i.id AS item_template_id,
@@ -1761,10 +1785,22 @@ export class ItemService {
                 data: rows.map(row => ({
                     listingId: row.listing_id,
                     sellerDiscordId: row.seller_ds_member_id,
+                    sellerDisplayName: this.resolveMemberDisplayName(row.seller_ds_member_id, row.seller_discord_global_name, row.seller_discord_username),
+                    sellerAvatarUrl: row.seller_discord_avatar_url,
                     price: Number(row.price),
                     inventoryItemId: row.inventory_item_id,
                     ownerDiscordId: row.seller_ds_member_id,
+                    ownerDisplayName: this.resolveMemberDisplayName(row.seller_ds_member_id, row.seller_discord_global_name, row.seller_discord_username),
+                    ownerAvatarUrl: row.seller_discord_avatar_url,
                     originalOwnerDiscordId: row.original_owner_ds_member_id,
+                    originalOwnerDisplayName: row.original_owner_ds_member_id
+                        ? this.resolveMemberDisplayName(
+                            row.original_owner_ds_member_id,
+                            row.original_owner_discord_global_name,
+                            row.original_owner_discord_username,
+                        )
+                        : null,
+                    originalOwnerAvatarUrl: row.original_owner_discord_avatar_url,
                     obtainedAt: new Date(row.obtained_at),
                     tier: row.tier,
                     itemTemplateId: row.item_template_id,
@@ -2158,8 +2194,14 @@ export class ItemService {
                     mi.id AS inventory_item_id,
                     mi.member_id AS owner_member_id,
                     owner.ds_member_id AS owner_ds_member_id,
+                    owner.discord_username AS owner_discord_username,
+                    owner.discord_global_name AS owner_discord_global_name,
+                    owner.discord_avatar_url AS owner_discord_avatar_url,
                     mi.original_owner_member_id,
                     original_owner.ds_member_id AS original_owner_ds_member_id,
+                    original_owner.discord_username AS original_owner_discord_username,
+                    original_owner.discord_global_name AS original_owner_discord_global_name,
+                    original_owner.discord_avatar_url AS original_owner_discord_avatar_url,
                     mi.obtained_at,
                     mi.tier,
                     i.id AS item_template_id,
@@ -2200,8 +2242,14 @@ export class ItemService {
                     mi.id AS inventory_item_id,
                     mi.member_id AS owner_member_id,
                     owner.ds_member_id AS owner_ds_member_id,
+                    owner.discord_username AS owner_discord_username,
+                    owner.discord_global_name AS owner_discord_global_name,
+                    owner.discord_avatar_url AS owner_discord_avatar_url,
                     mi.original_owner_member_id,
                     original_owner.ds_member_id AS original_owner_ds_member_id,
+                    original_owner.discord_username AS original_owner_discord_username,
+                    original_owner.discord_global_name AS original_owner_discord_global_name,
+                    original_owner.discord_avatar_url AS original_owner_discord_avatar_url,
                     mi.obtained_at,
                     mi.tier,
                     i.id AS item_template_id,
@@ -2238,7 +2286,17 @@ export class ItemService {
         return {
             inventoryItemId: row.inventory_item_id,
             ownerDiscordId: row.owner_ds_member_id,
+            ownerDisplayName: this.resolveMemberDisplayName(row.owner_ds_member_id, row.owner_discord_global_name, row.owner_discord_username),
+            ownerAvatarUrl: row.owner_discord_avatar_url,
             originalOwnerDiscordId: row.original_owner_ds_member_id,
+            originalOwnerDisplayName: row.original_owner_ds_member_id
+                ? this.resolveMemberDisplayName(
+                    row.original_owner_ds_member_id,
+                    row.original_owner_discord_global_name,
+                    row.original_owner_discord_username,
+                )
+                : null,
+            originalOwnerAvatarUrl: row.original_owner_discord_avatar_url,
             obtainedAt: new Date(row.obtained_at),
             tier: row.tier,
             itemTemplateId: row.item_template_id,
@@ -2253,6 +2311,20 @@ export class ItemService {
             rarityName: row.rarity_name,
             rarityColorHex: row.rarity_color_hex,
         };
+    }
+
+    private resolveMemberDisplayName(discordId: string, globalName: string | null, username: string | null): string {
+        const normalizedGlobalName = typeof globalName === "string" ? globalName.trim() : "";
+        if (normalizedGlobalName.length) {
+            return normalizedGlobalName;
+        }
+
+        const normalizedUsername = typeof username === "string" ? username.trim() : "";
+        if (normalizedUsername.length) {
+            return normalizedUsername;
+        }
+
+        return discordId;
     }
 
     private mapItemTemplateRow(row: ItemTemplateRow): ItemTemplateView {
