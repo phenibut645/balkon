@@ -1,6 +1,7 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { ItemService } from "./ItemService.js";
+import { ShopObsService } from "./ShopObsService.js";
 import { StreamerAccessService } from "./StreamerAccessService.js";
 import { streamerService } from "./StreamerService.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
@@ -22,6 +23,28 @@ export type StreamerManagedServiceView = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type StreamerServiceCatalogView = {
+  id: number;
+  streamerId: number;
+  serviceKey: string;
+  title: string;
+  description: string | null;
+  serviceType: StreamerManagedServiceType;
+  mediaKind: StreamerManagedServiceMediaKind | null;
+  mediaUrl: string | null;
+  durationMs: number | null;
+  price: number;
+};
+
+export type StreamerServicePurchaseResult = {
+  streamerId: number;
+  serviceId: number;
+  serviceKey: string;
+  priceOdm: number;
+  balanceAfter: number;
+  commandId?: string;
 };
 
 type CreateStreamerServiceInput = {
@@ -86,6 +109,7 @@ const MAX_OBS_MEDIA_DURATION_MS = 15000;
 const STREAMER_SERVICE_KEY_RE = /^[a-z0-9_-]{1,64}$/;
 const SUPPORTED_SERVICE_TYPES = new Set<StreamerManagedServiceType>(["obs_media"]);
 const SUPPORTED_OBS_MEDIA_KINDS = new Set<StreamerManagedServiceMediaKind>(["image", "gif"]);
+const shopObsService = ShopObsService.getInstance();
 
 export class StreamerServicesService {
   private static instance: StreamerServicesService;
@@ -96,6 +120,118 @@ export class StreamerServicesService {
     }
 
     return StreamerServicesService.instance;
+  }
+
+  async listEnabledStreamerServiceCatalog(streamerId: number): Promise<StreamerServiceCatalogView[]> {
+    await streamerService.ensureStreamerExistsById(streamerId);
+
+    try {
+      const [rows] = await pool.query<StreamerServiceRow[]>(
+        `SELECT
+            id,
+            streamer_id,
+            service_key,
+            title,
+            description,
+            service_type,
+            media_kind,
+            media_url,
+            duration_ms,
+            price,
+            enabled,
+            created_at,
+            updated_at
+         FROM streamer_services
+         WHERE streamer_id = ? AND enabled = TRUE
+         ORDER BY updated_at DESC, id DESC`,
+        [streamerId],
+      );
+
+      return rows.map(row => this.toCatalogView(row));
+    } catch (error) {
+      throw this.wrapError("STREAMER_SERVICE_LOAD_FAILED", "Failed to load streamer service catalog.", error);
+    }
+  }
+
+  async purchaseStreamerService(input: { buyerDiscordId: string; streamerId: number; serviceId: number }): Promise<StreamerServicePurchaseResult> {
+    await streamerService.ensureStreamerExistsById(input.streamerId);
+
+    const row = await this.requireServiceRow(input.streamerId, input.serviceId);
+    if (!Boolean(row.enabled)) {
+      throw Object.assign(new Error("Streamer service is disabled."), { code: "STREAMER_SERVICE_DISABLED" });
+    }
+
+    let normalized: NormalizedStreamerServicePayload;
+    try {
+      normalized = this.normalizePayload({
+        serviceKey: row.service_key,
+        title: row.title,
+        description: row.description,
+        serviceType: row.service_type,
+        mediaKind: row.media_kind,
+        mediaUrl: row.media_url,
+        durationMs: row.duration_ms,
+        price: row.price,
+        enabled: Boolean(row.enabled),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Stored streamer service payload is invalid.";
+      throw Object.assign(new Error(message), { code: "STREAMER_SERVICE_PURCHASE_INVALID" });
+    }
+
+    if (normalized.serviceType !== "obs_media") {
+      throw Object.assign(new Error("Streamer service type is not supported for purchase."), { code: "STREAMER_SERVICE_UNSUPPORTED" });
+    }
+
+    if (!normalized.mediaKind || !normalized.mediaUrl || normalized.durationMs === null) {
+      throw Object.assign(new Error("Stored streamer service payload is incomplete."), { code: "STREAMER_SERVICE_PURCHASE_INVALID" });
+    }
+
+    const mediaKind = normalized.mediaKind as "image" | "gif";
+
+    try {
+      const result = await shopObsService.purchaseConfiguredObsMedia({
+        discordId: input.buyerDiscordId,
+        streamerId: input.streamerId,
+        serviceKey: normalized.serviceKey,
+        title: normalized.title,
+        mediaKind,
+        mediaUrl: normalized.mediaUrl,
+        durationMs: normalized.durationMs,
+        priceOdm: normalized.price,
+      });
+
+      return {
+        streamerId: result.streamerId,
+        serviceId: Number(row.id),
+        serviceKey: normalized.serviceKey,
+        priceOdm: result.priceOdm,
+        balanceAfter: result.balanceAfter,
+        commandId: result.commandId,
+      };
+    } catch (error) {
+      if (shopObsService.isPurchaseError(error)) {
+        switch (error.code) {
+          case "OBS_STREAMER_NOT_FOUND":
+            throw Object.assign(new Error("Streamer not found."), { code: "STREAMER_NOT_FOUND" });
+          case "OBS_AGENT_NOT_CONFIGURED":
+            throw Object.assign(new Error("Streamer OBS Agent is not configured."), { code: "STREAMER_SERVICE_AGENT_NOT_CONFIGURED" });
+          case "OBS_AGENT_OFFLINE":
+            throw Object.assign(new Error("Streamer OBS Agent is offline."), { code: "STREAMER_SERVICE_AGENT_OFFLINE" });
+          case "NOT_ENOUGH_ODM":
+            throw Object.assign(new Error("Not enough ODM."), { code: "STREAMER_SERVICE_NOT_ENOUGH_ODM" });
+          case "OBS_MEDIA_COMMAND_FAILED":
+          case "OBS_MEDIA_REFUND_FAILED":
+            throw Object.assign(new Error(error.message || "Streamer service command failed."), { code: "STREAMER_SERVICE_COMMAND_FAILED" });
+          case "OBS_MEDIA_PURCHASE_FAILED":
+            throw Object.assign(new Error(error.message || "Streamer service purchase failed."), { code: "STREAMER_SERVICE_PURCHASE_FAILED" });
+          default:
+            throw Object.assign(new Error(error.message || "Streamer service purchase failed."), { code: "STREAMER_SERVICE_PURCHASE_FAILED" });
+        }
+      }
+
+      throw this.wrapError("STREAMER_SERVICE_PURCHASE_FAILED", "Failed to purchase streamer service.", error);
+    }
   }
 
   async listStreamerServices(actorDiscordId: string, streamerId: number): Promise<StreamerManagedServiceView[]> {
@@ -538,6 +674,22 @@ export class StreamerServicesService {
       enabled: Boolean(row.enabled),
       createdAt: this.toIsoTimestamp(row.created_at),
       updatedAt: this.toIsoTimestamp(row.updated_at),
+    };
+  }
+
+  private toCatalogView(row: StreamerServiceRow): StreamerServiceCatalogView {
+    const view = this.toView(row);
+    return {
+      id: view.id,
+      streamerId: view.streamerId,
+      serviceKey: view.serviceKey,
+      title: view.title,
+      description: view.description,
+      serviceType: view.serviceType,
+      mediaKind: view.mediaKind,
+      mediaUrl: view.mediaUrl,
+      durationMs: view.durationMs,
+      price: view.price,
     };
   }
 

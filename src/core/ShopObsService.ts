@@ -78,6 +78,17 @@ export type ObsMediaPurchaseResult = {
   commandId?: string;
 };
 
+export type ConfiguredObsMediaPurchaseInput = {
+  discordId: string;
+  streamerId: number;
+  serviceKey: string;
+  title: string;
+  mediaKind: "image" | "gif";
+  mediaUrl: string;
+  durationMs: number;
+  priceOdm: number;
+};
+
 const OBS_AGENT_BINDING_PREFIX = "obs_agent_binding:";
 const OBS_AGENT_STALE_MS = 120_000;
 const OBS_MEDIA_COMMAND_TIMEOUT_MS = 20_000;
@@ -185,6 +196,44 @@ export class ShopObsService {
       throw new ShopObsServiceError("OBS_MEDIA_PRODUCT_DISABLED", "OBS media product is disabled.");
     }
 
+    return this.purchaseObsMediaExecution({
+      discordId: input.discordId,
+      streamerId: input.streamerId,
+      productId: product.id,
+      productKind: product.kind,
+      productTitle: product.title,
+      mediaUrl: product.mediaUrl,
+      priceOdm: product.priceOdm,
+      durationMs: product.durationSeconds * 1000,
+      source: "shop_obs_media_purchase",
+    });
+  }
+
+  async purchaseConfiguredObsMedia(input: ConfiguredObsMediaPurchaseInput): Promise<ObsMediaPurchaseResult> {
+    return this.purchaseObsMediaExecution({
+      discordId: input.discordId,
+      streamerId: input.streamerId,
+      productId: input.serviceKey,
+      productKind: input.mediaKind,
+      productTitle: input.title,
+      mediaUrl: input.mediaUrl,
+      priceOdm: input.priceOdm,
+      durationMs: input.durationMs,
+      source: "streamer_service_purchase",
+    });
+  }
+
+  private async purchaseObsMediaExecution(input: {
+    discordId: string;
+    streamerId: number;
+    productId: string;
+    productKind: "image" | "gif";
+    productTitle: string;
+    mediaUrl: string;
+    priceOdm: number;
+    durationMs: number;
+    source: "shop_obs_media_purchase" | "streamer_service_purchase";
+  }): Promise<ObsMediaPurchaseResult> {
     const streamer = await this.getObsShopStreamerDetails(input.streamerId);
     if (!streamer) {
       throw new ShopObsServiceError("OBS_STREAMER_NOT_FOUND", "Streamer was not found.");
@@ -199,7 +248,7 @@ export class ShopObsService {
     }
 
     const buyer = await this.resolveMemberBalance(input.discordId);
-    const charged = await this.tryChargeMember(buyer.id, product.priceOdm);
+    const charged = await this.tryChargeMember(buyer.id, input.priceOdm);
     if (!charged) {
       throw new ShopObsServiceError("NOT_ENOUGH_ODM", "Not enough ODM.");
     }
@@ -207,10 +256,10 @@ export class ShopObsService {
     const obsMediaActionService = ObsMediaActionService.getInstance();
     const queue = getBotCommandQueue();
     const mediaPayload: ObsRelayMediaShowPayload = {
-      kind: product.kind,
-      url: product.mediaUrl,
-      durationMs: product.durationSeconds * 1000,
-      title: product.title,
+      kind: input.productKind,
+      url: input.mediaUrl,
+      durationMs: input.durationMs,
+      title: input.productTitle,
     };
 
     let commandId: number | null = null;
@@ -221,11 +270,11 @@ export class ShopObsService {
         buyerMemberId: buyer.id,
         streamerId: streamer.streamerId,
         agentId: streamer.obsAgentId,
-        productId: product.id,
-        productKind: product.kind,
-        productTitle: product.title,
-        mediaUrl: product.mediaUrl,
-        priceOdm: product.priceOdm,
+        productId: input.productId,
+        productKind: input.productKind,
+        productTitle: input.productTitle,
+        mediaUrl: input.mediaUrl,
+        priceOdm: input.priceOdm,
         durationMs: mediaPayload.durationMs,
       });
 
@@ -237,9 +286,9 @@ export class ShopObsService {
           agentId: streamer.obsAgentId,
           streamerId: streamer.streamerId,
           streamerNickname: streamer.nickname,
-          productId: product.id,
+          productId: input.productId,
           media: mediaPayload,
-          source: "shop_obs_media_purchase",
+          source: input.source,
         },
       });
 
@@ -252,7 +301,7 @@ export class ShopObsService {
         await this.refundFailedMediaPurchase({
           actionId,
           buyerMemberId: buyer.id,
-          priceOdm: product.priceOdm,
+          priceOdm: input.priceOdm,
           errorCode,
           errorMessage: message,
         });
@@ -262,7 +311,7 @@ export class ShopObsService {
       await this.refundFailedMediaPurchase({
         actionId,
         buyerMemberId: buyer.id,
-        priceOdm: product.priceOdm,
+        priceOdm: input.priceOdm,
         errorCode,
         errorMessage: message,
       });
@@ -282,13 +331,13 @@ export class ShopObsService {
     void this.createBuyerSuccessNotification({
       memberId: buyer.id,
       streamerNickname: streamer.nickname,
-      productTitle: product.title,
+      productTitle: input.productTitle,
     });
 
     return {
       streamerId: streamer.streamerId,
-      productId: product.id,
-      priceOdm: product.priceOdm,
+      productId: input.productId,
+      priceOdm: input.priceOdm,
       balanceAfter,
       commandId: commandId === null ? undefined : String(commandId),
     };

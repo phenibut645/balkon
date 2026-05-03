@@ -379,6 +379,100 @@ export async function registerStreamerStudioRoutes(app: FastifyInstance): Promis
     }
   });
 
+  app.get("/streamer-studio/:streamerId/services/catalog", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      const services = await streamerServicesService.listEnabledStreamerServiceCatalog(streamerId);
+      return {
+        ok: true,
+        services,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_SERVICE_LOAD_FAILED",
+        "Failed to load streamer service catalog.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/services/:serviceId/purchase", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    const serviceId = parsePositiveInteger((request.params as { serviceId?: string }).serviceId);
+    if (!streamerId || !serviceId) {
+      return {
+        ok: false,
+        error: "STREAMER_SERVICE_PURCHASE_INVALID",
+        message: "streamerId and serviceId must be positive integers.",
+      };
+    }
+
+    try {
+      const data = await streamerServicesService.purchaseStreamerService({
+        buyerDiscordId: request.authUser!.discordId,
+        streamerId,
+        serviceId,
+      });
+
+      return {
+        ok: true,
+        data,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      switch (e?.code) {
+        case "STREAMER_NOT_FOUND":
+          return {
+            ok: false,
+            error: "STREAMER_NOT_FOUND",
+            message: "Streamer not found.",
+          };
+        case "STREAMER_SERVICE_NOT_FOUND":
+          return {
+            ok: false,
+            error: "STREAMER_SERVICE_NOT_FOUND",
+            message: "Streamer service not found.",
+          };
+        case "STREAMER_SERVICE_DISABLED":
+        case "STREAMER_SERVICE_UNSUPPORTED":
+        case "STREAMER_SERVICE_PURCHASE_INVALID":
+        case "STREAMER_SERVICE_NOT_ENOUGH_ODM":
+        case "STREAMER_SERVICE_AGENT_NOT_CONFIGURED":
+        case "STREAMER_SERVICE_AGENT_OFFLINE":
+        case "STREAMER_SERVICE_PURCHASE_FAILED":
+        case "STREAMER_SERVICE_COMMAND_FAILED":
+          return {
+            ok: false,
+            error: e.code,
+            message: e.message || "Streamer service purchase failed.",
+          };
+        default:
+          return serviceErrorResponse(
+            "STREAMER_SERVICE_PURCHASE_FAILED",
+            "Failed to purchase streamer service.",
+            error instanceof Error ? error : undefined,
+          );
+      }
+    }
+  });
+
   app.post("/streamer-studio/:streamerId/services", { preHandler: requireAuth }, async request => {
     const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
     if (!streamerId) {
