@@ -269,6 +269,49 @@ CREATE TABLE craft_recipe_ingredients (
 CREATE INDEX idx_craft_recipes_name ON craft_recipes(name);
 CREATE INDEX idx_craft_recipe_ingredients_recipe_id ON craft_recipe_ingredients(craft_recipe_id);
 
+CREATE TABLE jobs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    job_key VARCHAR(64) NOT NULL UNIQUE,
+    title_ru VARCHAR(120) NOT NULL,
+    title_en VARCHAR(120) NOT NULL,
+    title_et VARCHAR(120) NOT NULL,
+    description_ru TEXT NULL,
+    description_en TEXT NULL,
+    description_et TEXT NULL,
+    icon_url TEXT NULL,
+    reward_amount INT NOT NULL DEFAULT 0,
+    cooldown_seconds INT NOT NULL DEFAULT 0,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    reward_item_id INT NULL,
+    reward_item_chance_percent DECIMAL(5, 2) NULL,
+    reward_item_quantity INT NOT NULL DEFAULT 1,
+    created_by_member_id INT NULL,
+    updated_by_member_id INT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (reward_item_id) REFERENCES items(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_member_id) REFERENCES members(id) ON DELETE SET NULL,
+    FOREIGN KEY (updated_by_member_id) REFERENCES members(id) ON DELETE SET NULL,
+    CHECK (reward_amount >= 0),
+    CHECK (cooldown_seconds >= 0),
+    CHECK (reward_item_quantity >= 1),
+    CHECK (reward_item_chance_percent IS NULL OR (reward_item_chance_percent >= 0 AND reward_item_chance_percent <= 100))
+);
+
+CREATE INDEX idx_jobs_enabled_updated_at ON jobs(enabled, updated_at DESC);
+
+CREATE TABLE member_job_cooldowns (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    member_id INT NOT NULL,
+    job_id INT NOT NULL,
+    last_run_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_member_job_cooldown (member_id, job_id),
+    FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_member_job_cooldowns_job ON member_job_cooldowns(job_id, last_run_at DESC);
+
 CREATE TABLE bot_settings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     setting_key VARCHAR(255) NOT NULL UNIQUE,

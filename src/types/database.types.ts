@@ -39,6 +39,8 @@ export type DataBaseTables =
     | "command_access_levels"
     | "craft_recipes"
     | "craft_recipe_ingredients"
+    | "jobs"
+    | "member_job_cooldowns"
     | "bot_settings"
     | "guild_streamers"
     | "item_service_actions"
