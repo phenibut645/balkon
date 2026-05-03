@@ -9,6 +9,7 @@ import { GuildDashboardService } from "../../core/GuildDashboardService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats, isBotAdmin } from "../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../core/StreamerAccessService.js";
+import { streamerService } from "../../core/StreamerService.js";
 import { registerStreamerStudioRoutes } from "./dashboard/streamerStudioRoutes.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireBotContributor } from "../middleware/requireBotContributor.js";
@@ -251,10 +252,50 @@ function itemMutationErrorResponse(
     };
   }
 
+  if (error.relatedTo === "member_items" && message === "You do not own this service item.") {
+    return {
+      ok: false,
+      error: "INVENTORY_ITEM_NOT_OWNED",
+      message,
+    };
+  }
+
   if (error.relatedTo === "items" && message === "This item is not tradeable.") {
     return {
       ok: false,
       error: "ITEM_NOT_TRADEABLE",
+      message,
+    };
+  }
+
+  if (error.relatedTo === "items" && message === "Selected inventory item is not a service item.") {
+    return {
+      ok: false,
+      error: "ITEM_NOT_SERVICE",
+      message,
+    };
+  }
+
+  if (error.reason === "record_not_found" && error.relatedTo === "item_service_actions") {
+    return {
+      ok: false,
+      error: "SERVICE_ACTION_NOT_CONFIGURED",
+      message,
+    };
+  }
+
+  if (error.reason === "record_not_found" && error.relatedTo === "bot_settings") {
+    return {
+      ok: false,
+      error: "OBS_AGENT_NOT_CONFIGURED",
+      message,
+    };
+  }
+
+  if (message.includes(" is offline.")) {
+    return {
+      ok: false,
+      error: "OBS_AGENT_OFFLINE",
       message,
     };
   }
@@ -469,6 +510,84 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
         balance: Number(member.data.balance),
       },
     };
+  });
+
+  app.post("/inventory/:inventoryItemId/use-service", { preHandler: requireAuth }, async request => {
+    const inventoryItemId = parsePositiveInteger((request.params as { inventoryItemId?: string }).inventoryItemId);
+    if (!inventoryItemId) {
+      return {
+        ok: false,
+        error: "INVALID_INVENTORY_ITEM_ID",
+        message: "inventoryItemId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as { streamerId?: unknown };
+    if (body.streamerId !== undefined && body.streamerId !== null && parsePositiveInteger(body.streamerId) === null) {
+      return {
+        ok: false,
+        error: "INVALID_STREAMER_ID",
+        message: "streamerId must be a positive integer when provided.",
+      };
+    }
+
+    const streamerId = body.streamerId === undefined || body.streamerId === null
+      ? null
+      : parsePositiveInteger(body.streamerId);
+
+    if (streamerId === null) {
+      return {
+        ok: false,
+        error: "STREAMER_REQUIRED",
+        message: "streamerId is required to use this service item from the dashboard.",
+      };
+    }
+
+    try {
+      await streamerService.ensureStreamerExistsById(streamerId);
+      const canControl = await streamerAccessService.canControlStreamer(request.authUser!.discordId, streamerId);
+      if (!canControl) {
+        return {
+          ok: false,
+          error: "STREAMER_ACCESS_FORBIDDEN",
+          message: "You do not have access to control this streamer.",
+        };
+      }
+
+      const response = await streamerService.useServiceItemByStreamerId({
+        discordUserId: request.authUser!.discordId,
+        inventoryItemId,
+        streamerId,
+      });
+      if (!response.success) {
+        return itemMutationErrorResponse("INVENTORY_SERVICE_USE_FAILED", "Failed to use service item.", response.error);
+      }
+
+      return {
+        ok: true,
+        data: {
+          inventoryItemId,
+          consumed: response.data.consumed,
+          actionType: response.data.actionType,
+          streamerId: response.data.streamerId,
+        },
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "INVENTORY_SERVICE_USE_FAILED",
+        "Failed to use service item.",
+        error instanceof Error ? error : undefined,
+      );
+    }
   });
 
   app.get("/market", { preHandler: requireAuth }, async () => {

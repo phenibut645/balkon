@@ -110,6 +110,16 @@ export interface ObsTargetView {
     online: boolean;
 }
 
+interface ServiceItemExecutionContext {
+    inventoryItem: Awaited<ReturnType<typeof itemService.getInventoryItemById>> extends DBResponse<infer T> ? NonNullable<T> : never;
+    action: ItemServiceActionView;
+    streamerId: number;
+    streamerNickname: string;
+    twitchUrl: string;
+    agentId: string;
+    guildId: string;
+}
+
 interface StreamerAgentBindingRecord {
     streamerId: number;
     agentId: string;
@@ -788,102 +798,64 @@ export class StreamerService {
         streamerNickname?: string | null;
         customText?: string | null;
     }): Promise<DBResponse<{ streamerNickname: string; actionType: ItemServiceActionType; consumed: boolean }>> {
-        let connection: PoolConnection | null = null;
-
         try {
-            const inventoryItem = await itemService.getInventoryItemById(input.inventoryItemId);
-            if (DataBaseHandler.isFail(inventoryItem) || !inventoryItem.data) {
-                return {
-                    success: false,
-                    error: {
-                        reason: "record_not_found",
-                        relatedTo: "member_items",
-                        message: "Inventory item not found.",
-                    },
-                };
-            }
-
-            if (inventoryItem.data.ownerDiscordId !== input.discordUserId) {
-                return {
-                    success: false,
-                    error: {
-                        reason: "unknown",
-                        relatedTo: "member_items",
-                        message: "You do not own this service item.",
-                    },
-                };
-            }
-
-            if (inventoryItem.data.itemType !== "service") {
-                return {
-                    success: false,
-                    error: {
-                        reason: "unknown",
-                        relatedTo: "items",
-                        message: "Selected inventory item is not a service item.",
-                    },
-                };
-            }
-
-            const actionResponse = await this.getItemServiceAction(inventoryItem.data.itemTemplateId);
-            if (DataBaseHandler.isFail(actionResponse) || !actionResponse.data) {
-                return {
-                    success: false,
-                    error: {
-                        reason: "record_not_found",
-                        relatedTo: "item_service_actions",
-                        message: "No OBS action is bound to this service item yet.",
-                    },
-                };
-            }
-
             const guildStreamer = await this.resolveGuildStreamer(input.discordGuildId, input.streamerNickname ?? null);
-            const streamerAgent = await this.getStreamerObsAgentByStreamerId(guildStreamer.streamerId);
-            if (!streamerAgent) {
-                return {
-                    success: false,
-                    error: {
-                        reason: "record_not_found",
-                        relatedTo: "bot_settings",
-                        message: `Streamer '${guildStreamer.nickname}' does not have an OBS agent configured yet.`,
-                    },
-                };
-            }
-
-            await this.executeObsAction({
-                action: actionResponse.data,
-                agentId: streamerAgent.agentId,
-                itemName: inventoryItem.data.name,
-                streamerNickname: guildStreamer.nickname,
-                twitchUrl: guildStreamer.twitchUrl,
-                customText: input.customText ?? null,
-                guildId: input.discordGuildId,
-                userId: input.discordUserId,
+            const executionContext = await this.prepareServiceItemExecution({
+                discordUserId: input.discordUserId,
+                inventoryItemId: input.inventoryItemId,
+                streamerId: guildStreamer.streamerId,
+                fallbackGuildId: input.discordGuildId,
             });
 
-            if (actionResponse.data.consumeOnUse) {
-                connection = await pool.getConnection();
-                await connection.beginTransaction();
-                await connection.query(`DELETE FROM item_public_market WHERE member_item_id = ?`, [input.inventoryItemId]);
-                await connection.query(`DELETE FROM member_items WHERE id = ?`, [input.inventoryItemId]);
-                await connection.commit();
-            }
+            await this.executePreparedServiceItem({
+                context: executionContext,
+                discordUserId: input.discordUserId,
+                customText: input.customText ?? null,
+            });
 
             return {
                 success: true,
                 data: {
-                    streamerNickname: guildStreamer.nickname,
-                    actionType: actionResponse.data.actionType,
-                    consumed: actionResponse.data.consumeOnUse,
+                    streamerNickname: executionContext.streamerNickname,
+                    actionType: executionContext.action.actionType,
+                    consumed: executionContext.action.consumeOnUse,
                 },
             };
         } catch (error) {
-            if (connection) {
-                await connection.rollback();
-            }
             return DataBaseHandler.errorHandling(error);
-        } finally {
-            connection?.release();
+        }
+    }
+
+    async useServiceItemByStreamerId(input: {
+        discordUserId: string;
+        inventoryItemId: number;
+        streamerId: number;
+        customText?: string | null;
+    }): Promise<DBResponse<{ streamerId: number; streamerNickname: string; actionType: ItemServiceActionType; consumed: boolean }>> {
+        try {
+            const executionContext = await this.prepareServiceItemExecution({
+                discordUserId: input.discordUserId,
+                inventoryItemId: input.inventoryItemId,
+                streamerId: input.streamerId,
+            });
+
+            await this.executePreparedServiceItem({
+                context: executionContext,
+                discordUserId: input.discordUserId,
+                customText: input.customText ?? null,
+            });
+
+            return {
+                success: true,
+                data: {
+                    streamerId: executionContext.streamerId,
+                    streamerNickname: executionContext.streamerNickname,
+                    actionType: executionContext.action.actionType,
+                    consumed: executionContext.action.consumeOnUse,
+                },
+            };
+        } catch (error) {
+            return DataBaseHandler.errorHandling(error);
         }
     }
 
@@ -955,6 +927,114 @@ export class StreamerService {
             .replaceAll("{guild}", input.guildId)
             .replaceAll("{user}", input.userId)
             .replaceAll("{custom_text}", input.customText?.trim() || input.itemName);
+    }
+
+    private async prepareServiceItemExecution(input: {
+        discordUserId: string;
+        inventoryItemId: number;
+        streamerId: number;
+        fallbackGuildId?: string;
+    }): Promise<ServiceItemExecutionContext> {
+        const inventoryItem = await itemService.getInventoryItemById(input.inventoryItemId);
+        if (DataBaseHandler.isFail(inventoryItem) || !inventoryItem.data) {
+            throw this.createServiceItemError("record_not_found", "member_items", "Inventory item not found.");
+        }
+
+        if (inventoryItem.data.ownerDiscordId !== input.discordUserId) {
+            throw this.createServiceItemError("unknown", "member_items", "You do not own this service item.");
+        }
+
+        if (inventoryItem.data.itemType !== "service") {
+            throw this.createServiceItemError("unknown", "items", "Selected inventory item is not a service item.");
+        }
+
+        const actionResponse = await this.getItemServiceAction(inventoryItem.data.itemTemplateId);
+        if (DataBaseHandler.isFail(actionResponse) || !actionResponse.data) {
+            throw this.createServiceItemError("record_not_found", "item_service_actions", "No OBS action is bound to this service item yet.");
+        }
+
+        const streamer = await this.requireStreamerById(input.streamerId);
+        const streamerAgent = await this.getStreamerObsAgentByStreamerId(streamer.id);
+        if (!streamerAgent) {
+            throw this.createServiceItemError("record_not_found", "bot_settings", `Streamer '${streamer.nickname}' does not have an OBS agent configured yet.`);
+        }
+
+        const guildId = input.fallbackGuildId ?? await this.resolvePrimaryGuildIdForStreamer(streamer.id);
+
+        return {
+            inventoryItem: inventoryItem.data,
+            action: actionResponse.data,
+            streamerId: streamer.id,
+            streamerNickname: streamer.nickname,
+            twitchUrl: streamer.twitch_url,
+            agentId: streamerAgent.agentId,
+            guildId,
+        };
+    }
+
+    private async executePreparedServiceItem(input: {
+        context: ServiceItemExecutionContext;
+        discordUserId: string;
+        customText: string | null;
+    }): Promise<void> {
+        let connection: PoolConnection | null = null;
+
+        try {
+            await this.executeObsAction({
+                action: input.context.action,
+                agentId: input.context.agentId,
+                itemName: input.context.inventoryItem.name,
+                streamerNickname: input.context.streamerNickname,
+                twitchUrl: input.context.twitchUrl,
+                customText: input.customText,
+                guildId: input.context.guildId,
+                userId: input.discordUserId,
+            });
+
+            if (!input.context.action.consumeOnUse) {
+                return;
+            }
+
+            connection = await pool.getConnection();
+            await connection.beginTransaction();
+            await connection.query(`DELETE FROM item_public_market WHERE member_item_id = ?`, [input.context.inventoryItem.inventoryItemId]);
+            await connection.query(`DELETE FROM member_items WHERE id = ?`, [input.context.inventoryItem.inventoryItemId]);
+            await connection.commit();
+        } catch (error) {
+            if (connection) {
+                await connection.rollback();
+            }
+            throw error;
+        } finally {
+            connection?.release();
+        }
+    }
+
+    private async resolvePrimaryGuildIdForStreamer(streamerId: number): Promise<string> {
+        const [rows] = await pool.query<Array<RowDataPacket & { ds_guild_id: string }>>(
+            `SELECT
+                g.ds_guild_id
+             FROM guild_streamers AS gs
+             INNER JOIN guilds AS g ON g.id = gs.guild_id
+             WHERE gs.streamer_id = ?
+             ORDER BY gs.is_primary DESC, gs.id ASC
+             LIMIT 1`,
+            [streamerId]
+        );
+
+        const guildId = rows[0]?.ds_guild_id ? String(rows[0].ds_guild_id) : "";
+        if (!guildId) {
+            throw this.createServiceItemError("record_not_found", "guild_streamers", "Streamer is not linked to any Discord guild.");
+        }
+
+        return guildId;
+    }
+
+    private createServiceItemError(reason: string, relatedTo: string, message: string) {
+        return Object.assign(new Error(message), {
+            reason,
+            relatedTo,
+        });
     }
 
     private async resolveGuildStreamer(discordGuildId: string, nickname: string | null): Promise<GuildStreamerView> {
