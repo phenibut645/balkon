@@ -1,21 +1,21 @@
 CREATE TABLE IF NOT EXISTS jobs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     job_key VARCHAR(64) NOT NULL UNIQUE,
     title_ru VARCHAR(120) NOT NULL,
-    title_en VARCHAR(120) NOT NULL,
-    title_et VARCHAR(120) NOT NULL,
+    title_en VARCHAR(120) NULL,
+    title_et VARCHAR(120) NULL,
     description_ru TEXT NULL,
     description_en TEXT NULL,
     description_et TEXT NULL,
-    icon_url TEXT NULL,
+    icon_url VARCHAR(500) NULL,
     reward_amount INT NOT NULL DEFAULT 0,
     cooldown_seconds INT NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    reward_item_id INT NULL,
+    reward_item_id BIGINT NULL,
     reward_item_chance_percent DECIMAL(5, 2) NULL,
     reward_item_quantity INT NOT NULL DEFAULT 1,
-    created_by_member_id INT NULL,
-    updated_by_member_id INT NULL,
+    created_by_member_id BIGINT NULL,
+    updated_by_member_id BIGINT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_jobs_reward_item
@@ -33,11 +33,10 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX idx_jobs_enabled_updated_at ON jobs(enabled, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS member_job_cooldowns (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    member_id INT NOT NULL,
-    job_id INT NOT NULL,
+    member_id BIGINT NOT NULL,
+    job_id BIGINT NOT NULL,
     last_run_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uniq_member_job_cooldown (member_id, job_id),
+    PRIMARY KEY (member_id, job_id),
     CONSTRAINT fk_member_job_cooldowns_member
         FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
     CONSTRAINT fk_member_job_cooldowns_job

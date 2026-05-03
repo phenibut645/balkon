@@ -334,6 +334,33 @@ export interface CraftRecipeIngredientsDB extends DefaultDBTable {
     amount: number,
 }
 
+export interface JobsDB extends DefaultDBTable {
+    job_key: string,
+    title_ru: string,
+    title_en?: string | null,
+    title_et?: string | null,
+    description_ru?: string | null,
+    description_en?: string | null,
+    description_et?: string | null,
+    icon_url?: string | null,
+    reward_amount: number,
+    cooldown_seconds: number,
+    enabled?: boolean,
+    reward_item_id?: number | null,
+    reward_item_chance_percent?: number | null,
+    reward_item_quantity: number,
+    created_by_member_id?: number | null,
+    updated_by_member_id?: number | null,
+    created_at?: number | Date,
+    updated_at?: number | Date,
+}
+
+export interface MemberJobCooldownsDB {
+    member_id: number,
+    job_id: number,
+    last_run_at: number | Date,
+}
+
 export interface BotSettingsDB extends DefaultDBTable {
     setting_key: string,
     setting_value: string | null,

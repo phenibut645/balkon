@@ -7,8 +7,8 @@ export type JobView = {
   id: number;
   jobKey: string;
   titleRu: string;
-  titleEn: string;
-  titleEt: string;
+  titleEn: string | null;
+  titleEt: string | null;
   descriptionRu: string | null;
   descriptionEn: string | null;
   descriptionEt: string | null;
@@ -41,7 +41,6 @@ export type JobRunResult = {
 };
 
 export type JobMutationInput = {
-  actorDiscordId: string;
   jobKey?: unknown;
   titleRu?: unknown;
   titleEn?: unknown;
@@ -62,8 +61,8 @@ interface JobRow extends RowDataPacket {
   id: number | string;
   job_key: string;
   title_ru: string;
-  title_en: string;
-  title_et: string;
+  title_en: string | null;
+  title_et: string | null;
   description_ru: string | null;
   description_en: string | null;
   description_et: string | null;
@@ -85,7 +84,6 @@ interface MemberBalanceRow extends RowDataPacket {
 }
 
 interface CooldownRow extends RowDataPacket {
-  id: number | string;
   last_run_at: Date | string;
 }
 
@@ -98,8 +96,8 @@ interface ItemIdentityRow extends RowDataPacket {
 type NormalizedJobPayload = {
   jobKey: string;
   titleRu: string;
-  titleEn: string;
-  titleEt: string;
+  titleEn: string | null;
+  titleEt: string | null;
   descriptionRu: string | null;
   descriptionEn: string | null;
   descriptionEt: string | null;
@@ -138,6 +136,14 @@ export class JobService {
 
   isJobServiceError(error: unknown): error is JobServiceError {
     return error instanceof JobServiceError;
+  }
+
+  getErrorCode(error: unknown): string | null {
+    return error instanceof JobServiceError ? error.code : null;
+  }
+
+  getErrorDetails(error: unknown): Record<string, unknown> | undefined {
+    return error instanceof JobServiceError ? error.details : undefined;
   }
 
   async listJobs(): Promise<JobView[]> {
@@ -201,8 +207,8 @@ export class JobService {
     return rows.map(row => this.mapJobRow(row));
   }
 
-  async createJob(input: JobMutationInput): Promise<JobView> {
-    const actor = await ItemService.getInstance().ensureMemberByDiscordId(input.actorDiscordId);
+  async createJob(adminDiscordId: string, input: JobMutationInput): Promise<JobView> {
+    const actor = await ItemService.getInstance().ensureMemberByDiscordId(adminDiscordId);
     const payload = await this.normalizePayload(input, false);
 
     try {
@@ -260,8 +266,8 @@ export class JobService {
     }
   }
 
-  async updateJob(jobId: number, input: JobMutationInput): Promise<JobView> {
-    const actor = await ItemService.getInstance().ensureMemberByDiscordId(input.actorDiscordId);
+  async updateJob(adminDiscordId: string, jobId: number, input: JobMutationInput): Promise<JobView> {
+    const actor = await ItemService.getInstance().ensureMemberByDiscordId(adminDiscordId);
     const existing = await this.getJobById(jobId);
     if (!existing) {
       throw new JobServiceError("JOB_NOT_FOUND", "Job not found.");
@@ -282,7 +288,6 @@ export class JobService {
       rewardItemId: input.rewardItemId ?? existing.rewardItemId,
       rewardItemChancePercent: input.rewardItemChancePercent ?? existing.rewardItemChancePercent,
       rewardItemQuantity: input.rewardItemQuantity ?? existing.rewardItemQuantity,
-      actorDiscordId: input.actorDiscordId,
     }, true);
 
     try {
@@ -347,8 +352,8 @@ export class JobService {
     }
   }
 
-  async disableJob(jobId: number, actorDiscordId: string): Promise<{ jobId: number; disabled: true }> {
-    const actor = await ItemService.getInstance().ensureMemberByDiscordId(actorDiscordId);
+  async disableJob(adminDiscordId: string, jobId: number): Promise<{ jobId: number; disabled: true }> {
+    const actor = await ItemService.getInstance().ensureMemberByDiscordId(adminDiscordId);
 
     const [result] = await pool.query<ResultSetHeader>(
       `UPDATE jobs
@@ -407,18 +412,16 @@ export class JobService {
 
       const jobRow = jobRows[0];
       if (!jobRow) {
-        await connection.rollback();
         throw new JobServiceError("JOB_NOT_FOUND", "Job not found.");
       }
 
       const job = this.mapJobRow(jobRow);
       if (!job.enabled) {
-        await connection.rollback();
         throw new JobServiceError("JOB_DISABLED", "Job is disabled.");
       }
 
       const [cooldownRows] = await connection.query<CooldownRow[]>(
-        `SELECT id, last_run_at
+        `SELECT last_run_at
          FROM member_job_cooldowns
          WHERE member_id = ? AND job_id = ?
          LIMIT 1
@@ -432,7 +435,6 @@ export class JobService {
         const nextAvailableAt = new Date(lastRunAt.getTime() + (job.cooldownSeconds * 1000));
         const remainingMs = nextAvailableAt.getTime() - now.getTime();
         if (remainingMs > 0) {
-          await connection.rollback();
           throw new JobServiceError("JOB_COOLDOWN_ACTIVE", "Job cooldown is still active.", {
             remainingSeconds: Math.ceil(remainingMs / 1000),
             nextAvailableAt: nextAvailableAt.toISOString(),
@@ -551,8 +553,8 @@ export class JobService {
   private async normalizePayload(input: JobMutationInput, isUpdate: boolean): Promise<NormalizedJobPayload> {
     const jobKey = this.normalizeJobKey(input.jobKey, isUpdate ? "Job key" : "jobKey");
     const titleRu = this.normalizeRequiredText(input.titleRu, "titleRu", 120);
-    const titleEn = this.normalizeRequiredText(input.titleEn, "titleEn", 120);
-    const titleEt = this.normalizeRequiredText(input.titleEt, "titleEt", 120);
+    const titleEn = this.normalizeLocalizedText(input.titleEn, "titleEn", 120);
+    const titleEt = this.normalizeLocalizedText(input.titleEt, "titleEt", 120);
     const descriptionRu = this.normalizeOptionalText(input.descriptionRu, 1000);
     const descriptionEn = this.normalizeOptionalText(input.descriptionEn, 1000);
     const descriptionEt = this.normalizeOptionalText(input.descriptionEt, 1000);
@@ -604,8 +606,8 @@ export class JobService {
       id: Number(row.id),
       jobKey: String(row.job_key),
       titleRu: String(row.title_ru),
-      titleEn: String(row.title_en),
-      titleEt: String(row.title_et),
+      titleEn: row.title_en === null ? null : String(row.title_en),
+      titleEt: row.title_et === null ? null : String(row.title_et),
       descriptionRu: row.description_ru === null ? null : String(row.description_ru),
       descriptionEn: row.description_en === null ? null : String(row.description_en),
       descriptionEt: row.description_et === null ? null : String(row.description_et),
@@ -653,6 +655,27 @@ export class JobService {
     const normalized = value.trim();
     if (!normalized.length || normalized.length > maxLength) {
       throw new JobServiceError("JOB_INVALID", `${fieldName} must be between 1 and ${maxLength} characters.`);
+    }
+
+    return normalized;
+  }
+
+  private normalizeLocalizedText(value: unknown, fieldName: string, maxLength: number): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+
+    if (typeof value !== "string") {
+      throw new JobServiceError("JOB_INVALID", `${fieldName} must be a string.`);
+    }
+
+    const normalized = value.trim();
+    if (!normalized.length) {
+      return null;
+    }
+
+    if (normalized.length > maxLength) {
+      throw new JobServiceError("JOB_INVALID", `${fieldName} must be ${maxLength} characters or less.`);
     }
 
     return normalized;
