@@ -45,7 +45,8 @@ export type DataBaseTables =
     | "bot_commands"
     | "api_sessions"
     | "admin_economy_adjustments"
-    | "obs_media_actions";
+    | "obs_media_actions"
+    | "streamer_services";
 
 export interface DefaultDBTable {
     id: number;
@@ -154,6 +155,8 @@ export interface StreamersDB extends DefaultDBTable {
 
 export type StreamerOwnerRole = "owner" | "manager";
 export type StreamerTrustedUserRole = "moderator" | "manager";
+export type StreamerManagedServiceType = "obs_media";
+export type StreamerManagedServiceMediaKind = "image" | "gif" | "video" | "browser";
 
 export interface StreamerOwnersDB extends DefaultDBTable {
     streamer_id: number;
@@ -168,6 +171,23 @@ export interface StreamerTrustedUsersDB extends DefaultDBTable {
     role: StreamerTrustedUserRole;
     created_by_member_id?: number | null;
     created_at?: number | Date;
+}
+
+export interface StreamerServicesDB extends DefaultDBTable {
+    streamer_id: number;
+    service_key: string;
+    title: string;
+    description?: string | null;
+    service_type: StreamerManagedServiceType;
+    media_kind?: StreamerManagedServiceMediaKind | null;
+    media_url?: string | null;
+    duration_ms?: number | null;
+    price: number;
+    enabled?: boolean;
+    created_by_member_id?: number | null;
+    updated_by_member_id?: number | null;
+    created_at?: number | Date;
+    updated_at?: number | Date;
 }
 
 export interface GuildStreamersDB extends DefaultDBTable {

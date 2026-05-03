@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { isBotAdmin } from "../../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../../core/StreamerAccessService.js";
+import { streamerServicesService } from "../../../core/StreamerServicesService.js";
 import { streamerService } from "../../../core/StreamerService.js";
 import { StreamerStudioControlService } from "../../../core/StreamerStudioControlService.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
@@ -332,6 +333,237 @@ export async function registerStreamerStudioRoutes(app: FastifyInstance): Promis
       return serviceErrorResponse(
         "STREAMER_STUDIO_AGENT_CLEAR_FAILED",
         "Failed to clear OBS agent binding.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.get("/streamer-studio/:streamerId/services", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    try {
+      const services = await streamerServicesService.listStreamerServices(request.authUser!.discordId, streamerId);
+      return {
+        ok: true,
+        services,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_SERVICE_LOAD_FAILED",
+        "Failed to load streamer services.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.post("/streamer-studio/:streamerId/services", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    if (!streamerId) {
+      return {
+        ok: false,
+        error: "STREAMER_NOT_FOUND",
+        message: "streamerId must be a positive integer.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+
+    try {
+      const service = await streamerServicesService.createStreamerService({
+        actorDiscordId: request.authUser!.discordId,
+        streamerId,
+        serviceKey: body.serviceKey,
+        title: body.title,
+        description: body.description,
+        serviceType: body.serviceType,
+        mediaKind: body.mediaKind,
+        mediaUrl: body.mediaUrl,
+        durationMs: body.durationMs,
+        price: body.price,
+        enabled: body.enabled,
+      });
+
+      return {
+        ok: true,
+        service,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+      if (e?.code === "STREAMER_SERVICE_INVALID") {
+        return {
+          ok: false,
+          error: "STREAMER_SERVICE_INVALID",
+          message: e.message || "Invalid streamer service input.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_SERVICE_CREATE_FAILED",
+        "Failed to create streamer service.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.patch("/streamer-studio/:streamerId/services/:serviceId", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    const serviceId = parsePositiveInteger((request.params as { serviceId?: string }).serviceId);
+    if (!streamerId || !serviceId) {
+      return {
+        ok: false,
+        error: "STREAMER_SERVICE_INVALID",
+        message: "streamerId and serviceId must be positive integers.",
+      };
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+
+    try {
+      const service = await streamerServicesService.updateStreamerService({
+        actorDiscordId: request.authUser!.discordId,
+        streamerId,
+        serviceId,
+        serviceKey: body.serviceKey,
+        title: body.title,
+        description: body.description,
+        serviceType: body.serviceType,
+        mediaKind: body.mediaKind,
+        mediaUrl: body.mediaUrl,
+        durationMs: body.durationMs,
+        price: body.price,
+        enabled: body.enabled,
+      });
+
+      return {
+        ok: true,
+        service,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+      if (e?.code === "STREAMER_SERVICE_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_SERVICE_NOT_FOUND",
+          message: "Streamer service not found.",
+        };
+      }
+      if (e?.code === "STREAMER_SERVICE_INVALID") {
+        return {
+          ok: false,
+          error: "STREAMER_SERVICE_INVALID",
+          message: e.message || "Invalid streamer service input.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_SERVICE_UPDATE_FAILED",
+        "Failed to update streamer service.",
+        error instanceof Error ? error : undefined,
+      );
+    }
+  });
+
+  app.delete("/streamer-studio/:streamerId/services/:serviceId", { preHandler: requireAuth }, async request => {
+    const streamerId = parsePositiveInteger((request.params as { streamerId?: string }).streamerId);
+    const serviceId = parsePositiveInteger((request.params as { serviceId?: string }).serviceId);
+    if (!streamerId || !serviceId) {
+      return {
+        ok: false,
+        error: "STREAMER_SERVICE_INVALID",
+        message: "streamerId and serviceId must be positive integers.",
+      };
+    }
+
+    try {
+      const result = await streamerServicesService.disableStreamerService({
+        actorDiscordId: request.authUser!.discordId,
+        streamerId,
+        serviceId,
+      });
+
+      return {
+        ok: true,
+        serviceId: result.serviceId,
+        disabled: result.disabled,
+      };
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      if (e?.code === "STREAMER_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_NOT_FOUND",
+          message: "Streamer not found.",
+        };
+      }
+      if (e?.code === "STREAMER_STUDIO_FORBIDDEN") {
+        return {
+          ok: false,
+          error: "STREAMER_STUDIO_FORBIDDEN",
+          message: "You do not have access to manage this streamer.",
+        };
+      }
+      if (e?.code === "STREAMER_SERVICE_NOT_FOUND") {
+        return {
+          ok: false,
+          error: "STREAMER_SERVICE_NOT_FOUND",
+          message: "Streamer service not found.",
+        };
+      }
+
+      return serviceErrorResponse(
+        "STREAMER_SERVICE_DELETE_FAILED",
+        "Failed to disable streamer service.",
         error instanceof Error ? error : undefined,
       );
     }
