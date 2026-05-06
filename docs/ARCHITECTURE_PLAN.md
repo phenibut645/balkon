@@ -1,175 +1,560 @@
-# Balkon Architecture Plan
+# Balkon Architecture Plan / Закон Balkon
 
-This document defines a practical target architecture for the Balkon ecosystem before adding major new features.
+This document is the architecture law for the Balkon ecosystem.
 
-It covers three repositories:
+It is not a suggestion document. It defines mandatory rules for humans, Copilot, AI assistants, and future refactoring work.
 
-- `phenibut645/balkon` - backend, REST API, Discord bot, database migrations, business logic, OBS relay
+Balkon is a multi-component system:
+
+- `phenibut645/balkon` - backend, REST API, Discord bot, MySQL database, migrations, business logic, OBS relay, command queue
 - `phenibut645/balkon-website` - Next.js dashboard frontend
 - `phenibut645/balkon-obs-agent` - local Windows OBS Agent
 
-The goal is not a rewrite. The goal is to reduce risk, improve clarity, and create a stable structure for gradual refactoring.
+The goal is not a rewrite. The goal is stabilization, architecture hardening, traceability, security, and safe incremental refactoring.
 
 ---
 
-## Goals
+## 0. Law Status
 
-- Reduce coupling between routes, services, SQL, and external APIs.
-- Make business rules explicit and testable.
-- Centralize critical write flows such as member creation and economy mutations.
-- Improve traceability for how records are created and changed.
-- Make future feature work safer without over-engineering the system.
+This file is the baseline reference for all future Balkon work.
 
-## Non-Goals
+Every non-trivial PR must be checked against this document.
 
-- Do not rebuild the whole project around a heavy framework.
-- Do not introduce microservices.
-- Do not split the backend into many deployables.
-- Do not block feature delivery on a full rewrite.
+Copilot and AI-generated changes must follow this document. If a generated change violates this document, the change must be rejected or rewritten.
 
----
+Core rule:
 
-## 1. Core Principle
+```text
+No blind refactor.
+No feature growth on top of uncontrolled write paths.
+No SQL in routes or Discord command handlers.
+No direct money/item/member lifecycle mutation outside the owning service/module.
+```
 
-## Feature/domain-based layered architecture
-
-The target architecture is a feature-based layered architecture.
-
-Each major domain owns its own application logic, domain rules, and data access boundaries. Shared infrastructure stays in common folders, but business behavior should live near the domain that owns it.
-
-This means:
-
-- code is organized primarily by business capability, not by technical type alone
-- each domain exposes clear service entry points
-- write paths become easier to audit and secure
-- large MVP-era files are split by responsibility, not only by file size
-
-Recommended domains:
-
-- member
-- auth
-- economy
-- inventory
-- market
-- notifications
-- guilds
-- streamers
-- obs
-- jobs
-- admin
-- audit
+During stabilization, do not add major product features except diagnostics, documentation, validation tooling, additive migrations, and small architecture-safe extractions.
 
 ---
 
-## 2. Backend Layering
+## 1. Verified Current State
 
-Target backend dependency direction:
+These facts were verified during the architecture reset.
 
-`routes/controllers -> application services -> domain services -> repositories -> database/external APIs`
+### Backend/API
 
-### Layer responsibilities
+- `src/api/server.ts` is the Fastify API entry point.
+- API routes are registered under `/api`.
+- `src/events/interactionCreate.ts` is a Discord interaction adapter.
+- `src/events/messageCreate.ts` is a Discord message adapter.
+- `dashboardRoutes.ts` is partially extracted but still contains real route handlers, validation, and response mapping.
+- Dashboard route modules already exist for profile, notifications, market, inventory, jobs, craft execution, streamer studio, admin streamers, and streamer applications.
 
-#### Routes / controllers
+### Current service/data-access state
 
-- Parse request input.
-- Validate request shape and access requirements.
-- Call application services.
-- Map result to HTTP response shape.
-- Must stay thin.
+`src/core/*` is currently a mixed layer. Many core files contain service logic, SQL, mapping, transaction handling, and side effects in the same file.
 
-#### Application services
+Confirmed direct SQL usage exists in files such as:
 
-- Coordinate one use case or workflow.
-- Start transactions when a use case spans multiple writes.
-- Call domain services and repositories.
-- Enforce use-case level authorization and orchestration.
+- `src/core/MemberService.ts`
+- `src/core/DiscordMetadataService.ts`
+- `src/core/DataBaseHandler.ts`
+- `src/core/ItemService.ts`
+- `src/core/EconomyService.ts`
+- `src/core/ShopObsService.ts`
+- `src/core/JobService.ts`
+- `src/core/NotificationService.ts`
+- `src/core/UserProfileService.ts`
+- `src/core/GuildDashboardService.ts`
+- `src/core/ObsService.ts`
+- `src/core/ObsRelayService.ts`
+- `src/core/ObsMediaActionService.ts`
+- `src/core/BotCommandQueue.ts`
+- `src/api/auth/apiSessionService.ts`
 
-Examples:
+This confirms that repository boundaries are not yet established.
 
-- buy market listing
-- update profile
-- create notification
-- purchase OBS media item
-- approve streamer application
+### Current member lifecycle findings
 
-#### Domain services
+- `src/core/MemberService.ts` exists.
+- OAuth session creation calls `memberService.ensureMemberFromDiscordProfile(...)` before inserting `api_sessions`.
+- `interactionCreate.ts` and `messageCreate.ts` call `memberService.ensureMemberFromDiscordProfile(...)` when a Discord.js user is available.
+- `DataBaseHandler.isMemberExists(...)` still exists as a legacy member/guild-member bootstrap path.
+- `MemberService.ensureMemberByDiscordId(...)` currently uses an `INSERT ... ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)` pattern.
+- `DiscordMetadataService.upsertMemberDiscordProfile(...)` currently performs `INSERT INTO members ... ON DUPLICATE KEY UPDATE`, which means it can create `members` rows outside `MemberService`.
 
-- Contain business rules and invariants.
-- Make decisions about allowed state transitions.
-- Must not know HTTP details.
-- Should be reusable from API routes, bot commands, and background jobs.
+Therefore, the member lifecycle is improved but not hardened.
 
-Examples:
+### Current economy findings
 
-- economy balance rules
-- item transfer rules
-- member lifecycle rules
-- permission evaluation rules
+- `EconomyService` exists.
+- `EconomyService.adjustMemberBalanceByAdmin(...)` performs a transaction and writes `admin_economy_adjustments`.
+- `EconomyService` still resolves members through `ItemService.getInstance().ensureMemberByDiscordId(...)` in some flows.
+- `ShopObsService` directly debits and refunds `members.balance`.
+- `JobService.runJob(...)` directly increments `members.balance` inside its own transaction.
+- `ItemService` still participates in inventory, market, shop, craft, member, and economy workflows.
 
-#### Repositories
+Therefore, the rule `Only EconomyService may change balances` is not yet satisfied.
 
-- Encapsulate data access.
-- Contain SQL queries and mapping between rows and domain models.
-- Must not implement business policy.
-- Can expose transaction-aware methods.
+### Current database findings
 
-#### Database / external APIs
+The database is MVP-grown but not unusable.
 
-- MySQL
-- Discord API and gateway objects
-- OBS relay and OBS agent transport
-- Twitch or other third-party APIs
+Good signs:
 
----
+- many tables have foreign keys
+- many newer tables have timestamps and indexes
+- `schema_migrations` exists
+- jobs, notifications, OBS media actions, streamer access, and streamer services are more structured than older tables
 
-## 3. Responsibility Rules
+Confirmed risks:
 
-The following rules should become project-wide guardrails.
-
-### Route and command rules
-
-- [ ] Routes do not contain SQL.
-- [ ] Commands do not contain SQL.
-- [ ] Routes do not implement business rules beyond basic request validation and response mapping.
-- [ ] Bot command handlers call services, not raw database helpers.
-
-### Repository rules
-
-- [ ] Repositories do not contain business logic.
-- [ ] Repositories do not decide permissions.
-- [ ] Repositories do not trigger side effects outside persistence unless explicitly designed as infrastructure adapters.
-
-### Service rules
-
-- [ ] Services own business rules.
-- [ ] Application services orchestrate use cases.
-- [ ] Domain services enforce invariants.
-- [ ] Services must be reusable from API, bot, jobs, and scripts.
-
-### Member ownership rules
-
-- [ ] Only `MemberService` and `MemberRepository` may create `members` rows.
-- [ ] No other service may insert directly into `members`.
-- [ ] Discord profile cache refresh must go through the member/profile lifecycle path.
-
-### Economy and item safety rules
-
-- [ ] Only `EconomyService` may change balances.
-- [ ] Money and item operations must use transactions.
-- [ ] Cross-entity writes must be atomic where possible.
-- [ ] Failed workflows must leave a clear audit trail.
-
-### Audit rules
-
-- [ ] Important mutations must write audit logs.
-- [ ] Security-sensitive actions must always be attributable to an actor.
-- [ ] Mutations triggered by jobs or system automation must identify a system actor/source.
+- `members` is overloaded with identity, Discord profile cache, economy balances, locale, home guild, and profile description
+- `members` lacks lifecycle metadata such as `created_at`, `updated_at`, `created_source`, `discord_profile_status`, and `last_seen_at`
+- money/price types are inconsistent: `INT`, `FLOAT`, `DECIMAL`, and `BIGINT` are all used across economy-related tables
+- no general `audit_logs` table exists
+- no general economy ledger exists
+- `api_sessions` stores OAuth access/refresh token fields and requires security review
+- `bot_settings` is a generic key/value table and must not become uncontrolled domain config or plaintext secret storage
 
 ---
 
-## 4. Proposed Backend Folder Structure
+## 2. Core Architecture Principle
 
-The current backend should gradually move toward a structure like this:
+Balkon uses feature/domain-based layered architecture.
+
+Target dependency direction:
+
+```text
+routes/controllers
+  -> application services
+  -> domain services
+  -> repositories
+  -> database / external APIs
+```
+
+API routes and Discord bot handlers are adapters. They are not the business layer.
+
+The same business use case should be callable from API, Discord bot, jobs, scripts, or tests without duplicating rules.
+
+```text
+Fastify API route
+  -> use case / application service
+  -> domain services
+  -> repositories
+
+Discord command/event
+  -> use case / application service
+  -> domain services
+  -> repositories
+```
+
+API and Discord bot may differ in input parsing and response formatting. They must not diverge in business rules.
+
+---
+
+## 3. Layer Responsibilities
+
+### Routes / controllers
+
+Allowed:
+
+- parse request params/body/query
+- validate request shape
+- read auth context
+- call application services
+- map service result to HTTP response
+
+Forbidden:
+
+- SQL
+- raw database transactions
+- direct member creation
+- direct balance mutation
+- direct inventory mutation
+- business rules beyond basic request validation
+
+### Discord events / commands / interactions
+
+Allowed:
+
+- parse Discord interaction/message input
+- resolve Discord actor/guild/channel context
+- call application services
+- send Discord replies/followups
+
+Forbidden:
+
+- SQL
+- direct database mutations
+- direct member creation outside member lifecycle service
+- direct balance/item mutations
+- duplicated business rules already used by API
+
+### Application services
+
+Allowed:
+
+- orchestrate a use case
+- enforce use-case authorization
+- open transactions for multi-write workflows
+- call domain services and repositories
+- call `AuditLogService`
+- coordinate external side effects after durable state is correct
+
+### Domain services
+
+Allowed:
+
+- enforce business rules and invariants
+- validate state transitions
+- calculate domain outcomes
+
+Forbidden:
+
+- Fastify request/reply objects
+- Discord.js interaction/message objects
+- raw SQL
+
+### Repositories
+
+Allowed:
+
+- SQL
+- row mapping
+- transaction-aware persistence methods
+
+Forbidden:
+
+- permission decisions
+- business policy
+- Discord/Fastify response behavior
+
+---
+
+## 4. Ownership Rules
+
+### Member ownership
+
+```text
+Only MemberService / future MemberRepository may create members rows.
+```
+
+Rules:
+
+- no route may insert into `members`
+- no Discord command/event may insert into `members`
+- no generic service may insert into `members`
+- `DiscordMetadataService` must not create members
+- `ItemService` must not be a member resolving/creation owner
+- `DataBaseHandler` must not remain the primary member lifecycle path
+
+Allowed member flows:
+
+- create minimal member when only Discord ID is known
+- upgrade member profile when Discord profile is available
+- record creation source
+- record profile status
+- update last seen time
+
+### Economy ownership
+
+```text
+Only EconomyService / future EconomyRepository may change balance or ldm_balance.
+```
+
+Rules:
+
+- no direct `UPDATE members SET balance...` outside economy owner
+- no direct `UPDATE members SET ldm_balance...` outside economy owner
+- market/shop/jobs/OBS/craft/admin money mutations must go through economy ownership
+- refunds must be explicit and auditable
+
+### Inventory ownership
+
+Inventory/item ownership changes must go through an inventory owner:
+
+- future `InventoryService`
+- future `InventoryRepository`
+
+Rules:
+
+- item ownership changes must be transaction-safe
+- item grants/transfers/consumption must be auditable
+- market listings must not mutate inventory ownership without a controlled use case
+
+### Audit ownership
+
+Important mutations must write application-level audit logs.
+
+Audit is not optional for critical workflows.
+
+---
+
+## 5. Member/Profile Lifecycle Law
+
+The member lifecycle is a critical system boundary.
+
+There are two identifiers:
+
+- internal member id: `members.id`
+- Discord user id: `members.ds_member_id`
+
+Rules:
+
+- internal MySQL relations should use `members.id`
+- external Discord-facing workflows may start with Discord user id
+- mapping from Discord user id to internal member id must be centralized
+- OAuth login should refresh profile cache
+- real Discord interaction/message paths should refresh profile cache
+- cache updates should not wipe existing non-null values with null unless explicitly intended
+- raw Discord ID is a debug/secondary display fallback, not a primary user display name
+
+Required hardening:
+
+```text
+MemberService.ensureMemberByDiscordId(...)
+  SELECT by ds_member_id
+    -> if found, return id
+    -> if missing, INSERT minimal member
+    -> if INSERT hits ER_DUP_ENTRY race, SELECT again
+```
+
+`DiscordMetadataService.upsertMemberDiscordProfile(...)` must stop creating `members` rows.
+
+Target behavior:
+
+```text
+MemberService.ensureMemberFromDiscordProfile(...)
+  -> ensure member exists through MemberService
+  -> update profile cache for existing member
+```
+
+The profile update helper may update existing rows, but must not create `members` independently.
+
+---
+
+## 6. Database Architecture Law
+
+Database changes must be conservative, additive first, and linked to service ownership.
+
+Migration rules:
+
+- use additive migrations first
+- never edit already-applied production migrations
+- update baseline schema when project convention requires it
+- avoid destructive changes during stabilization
+- backfill before tightening constraints
+- do not add hard constraints until code paths are ready
+
+### `members` table direction
+
+`members` is currently overloaded. Do not split it immediately.
+
+First add traceability and lifecycle metadata:
+
+- `created_at`
+- `updated_at`
+- `created_source`
+- `discord_profile_status`
+- `last_seen_at`
+
+Possible profile statuses:
+
+- `minimal`
+- `partial`
+- `complete`
+- `stale`
+- `not_found`
+- `sync_failed`
+
+Backfill policy must be documented before migration is applied.
+
+### Economy data direction
+
+Do not move balances out of `members` first.
+
+Correct order:
+
+```text
+centralize balance writes
+  -> add audit / ledger
+  -> normalize money types
+  -> only then consider wallet table split
+```
+
+Money values must not use `FLOAT` long-term.
+
+Target direction:
+
+- use integer amounts for game currency where possible
+- use one consistent type for ODM/LDM and prices
+- check existing data before changing types
+
+### Audit table direction
+
+Introduce an application-level `audit_logs` table.
+
+Possible columns:
+
+- `id`
+- `created_at`
+- `actor_member_id`
+- `actor_discord_id`
+- `actor_type`
+- `action`
+- `entity_type`
+- `entity_id`
+- `source`
+- `request_id`
+- `guild_id`
+- `metadata_json`
+
+MySQL triggers are not the primary audit mechanism. Use application-level audit because the application knows actor, source, route, request id, business action, and context.
+
+Security-sensitive database rules:
+
+- OAuth access/refresh tokens require security review
+- sensitive values must not be logged
+- secrets should not live plaintext in generic settings tables
+- `bot_settings` must not become uncontrolled domain config
+
+---
+
+## 7. Transaction Safety Law
+
+The following workflows must be transaction-safe where possible:
+
+- market purchase
+- market listing creation/update/cancel when inventory/money is involved
+- bot shop purchase
+- OBS media purchase
+- OBS media refund
+- craft execution
+- job reward
+- item transfer
+- item grant
+- admin economy adjustment
+- streamer permission changes
+- command queue creation when tied to money/item mutation
+
+If a workflow cannot be a single DB transaction because it involves external side effects, the durable state must still be explicit:
+
+- pending state
+- sent/completed state
+- failed state
+- refunded state when money was returned
+- audit event for failure/refund
+
+External side effects should generally happen after durable intent/state is created.
+
+---
+
+## 8. Audit Logging Law
+
+Introduce `AuditLogService` and use it for important mutations.
+
+Minimum events:
+
+- `auth.oauth_login`
+- `auth.session_created`
+- `auth.session_revoked`
+- `member.created`
+- `member.profile_synced`
+- `member.profile_sync_failed`
+- `member.profile_not_found`
+- `economy.balance_changed`
+- `market.purchase_completed`
+- `market.listing_created`
+- `market.listing_cancelled`
+- `inventory.item_given`
+- `inventory.item_transferred`
+- `inventory.item_consumed`
+- `jobs.reward_granted`
+- `obs.command_sent`
+- `obs.command_failed`
+- `obs.service_triggered`
+- `admin.action_performed`
+- `security.permission_denied`
+
+Audit events must identify source:
+
+- `api`
+- `bot_command`
+- `discord_event`
+- `oauth`
+- `job`
+- `script`
+- `system`
+- `migration`
+
+---
+
+## 9. Security Law
+
+Security is not a later cleanup task.
+
+Every relevant change must consider:
+
+- session cookie flags: `httpOnly`, `secure`, `sameSite`
+- prod vs dev auth behavior
+- CORS
+- backend permission checks
+- Discord OAuth token handling
+- OBS relay authentication
+- OBS Agent token/password storage
+- SQL injection risks in dynamic SQL
+- sensitive values in logs
+- routes that rely only on frontend hiding buttons
+
+Frontend hiding is never authorization.
+
+Authorization must be enforced by backend/API/application services.
+
+---
+
+## 10. Large File Refactoring Law
+
+No large file over roughly 500 lines should be refactored blindly.
+
+Before refactoring a large file, create an inventory:
+
+- methods/components
+- approximate line ranges
+- responsibilities
+- SQL/API calls
+- side effects
+- current callers
+- response shapes exposed to API/frontend/bot
+- target service/repository/component
+- extraction risk
+
+This applies especially to:
+
+- `src/core/ItemService.ts`
+- `src/api/routes/dashboardRoutes.ts`
+- large frontend `page.tsx` files
+- large dashboard components
+
+Allowed first extractions:
+
+- pure helpers
+- read-only query services
+- response mappers
+- small route modules with stable behavior
+
+Forbidden first extractions:
+
+- market purchase
+- craft execution
+- OBS paid action
+- inventory transfer
+- economy-coupled mutations
+- transaction-heavy flows
+
+---
+
+## 11. Backend Target Structure
+
+The backend should gradually move toward:
 
 ```text
 src/
@@ -190,55 +575,16 @@ src/
       services/
       validators/
     auth/
-      application/
-      dto/
-      services/
-      validators/
     economy/
-      application/
-      domain/
-      dto/
-      services/
-      validators/
     inventory/
-      application/
-      domain/
-      dto/
-      services/
-      validators/
     market/
-      application/
-      domain/
-      dto/
-      services/
-      validators/
     notifications/
-      application/
-      dto/
-      services/
     guilds/
-      application/
-      domain/
-      services/
     streamers/
-      application/
-      domain/
-      services/
     obs/
-      application/
-      domain/
-      services/
     jobs/
-      application/
-      domain/
-      services/
     admin/
-      application/
-      services/
     audit/
-      application/
-      services/
-      dto/
   repositories/
     member/
     economy/
@@ -262,445 +608,141 @@ src/
     constants/
 ```
 
-### Practical notes
+This is a target direction, not a one-day rewrite.
 
-- Keep existing files working during transition.
-- New code should prefer module folders first.
-- Existing large services can be wrapped and gradually split instead of renamed all at once.
-- Repositories may initially live beside old services if needed, but the target should be explicit repository boundaries.
+Existing files may remain while they are gradually wrapped and split.
 
----
-
-## 5. Member/Profile Lifecycle Design
-
-The member lifecycle must be one of the clearest parts of the system.
-
-### Identity model
-
-There are two different identifiers and both must remain explicit:
-
-- internal member id: `members.id`
-- Discord user id: `members.ds_member_id`
-
-Rules:
-
-- internal relations inside MySQL should use `members.id`
-- external API and Discord-facing workflows usually start from Discord user id
-- mapping between Discord user id and internal member id must be centralized
-
-### Cached Discord profile
-
-The `members` table is the durable profile cache for Discord identity fields.
-
-Recommended cache fields:
-
-- `ds_member_id`
-- `discord_username`
-- `discord_global_name`
-- `discord_avatar`
-- `discord_avatar_url`
-- `discord_profile_updated_at`
-- `last_seen_at`
-
-Rules:
-
-- cache updates should not wipe non-null values with null unless explicitly intended
-- OAuth login and real Discord interaction paths should refresh cache
-- cache freshness should be observable
-
-### Lifecycle metadata
-
-The member record should explicitly tell the system how it came to exist and what state it is in.
-
-Recommended fields and meaning:
-
-- `created_source`
-  - examples: `oauth`, `discord_interaction`, `discord_message`, `admin_action`, `system_seed`, `economy_flow`
-- `profile_status`
-  - examples: `minimal`, `partial`, `complete`, `stale`, `blocked`
-- `last_seen_at`
-  - last confirmed activity by OAuth or Discord interaction
-- `discord_profile_updated_at`
-  - last refresh of profile cache
-
-### Lifecycle rules
-
-- [ ] A member may be created as minimal when only Discord ID is known.
-- [ ] A member should be upgraded to partial or complete when real Discord profile data is seen.
-- [ ] Member creation must always record source.
-- [ ] Profile status should reflect whether the cached profile is usable for display.
-- [ ] Raw Discord ID should be a secondary/debug identifier, not the preferred display label.
+New code should prefer the target structure.
 
 ---
 
-## 6. Database Improvement Principles
+## 12. Frontend Law for `balkon-website`
 
-The database should evolve conservatively and add traceability first.
+Frontend refactor is a separate track and must not be mixed with backend stabilization PRs unless there is a strict reason.
 
-### Migration policy
-
-- [ ] Use additive migrations first.
-- [ ] Update both incremental migration files and baseline schema where required.
-- [ ] Avoid destructive changes in early cleanup phases.
-- [ ] Never edit already-applied production migrations.
-
-### Timestamp policy
-
-New business tables should generally have:
-
-- `created_at`
-- `updated_at`
-
-Important lifecycle tables may also have:
-
-- `deleted_at`
-- `archived_at`
-- `processed_at`
-- `last_seen_at`
-
-### Audit-first changes
-
-Before aggressive cleanup:
-
-- add missing trace fields
-- add audit tables
-- add relationship indexes
-- normalize critical write paths
-
-### Index principles
-
-Add indexes based on real access patterns:
-
-- foreign keys and join columns
-- unique external IDs such as Discord IDs
-- workflow lookup columns such as status, created_at, expires_at
-- audit lookup columns such as actor_member_id and entity_type/entity_id
-
-### Data safety principles
-
-- [ ] No destructive migrations first.
-- [ ] Prefer nullable additive columns before enforcing stricter constraints.
-- [ ] Backfill data before adding stricter rules.
-- [ ] Validate high-volume write paths before schema tightening.
-
----
-
-## 7. Audit Logging Design
-
-A dedicated audit capability should exist at application level.
-
-## AuditLogService
-
-Introduce an `AuditLogService` responsible for writing structured audit events for important mutations.
-
-Responsibilities:
-
-- accept structured audit events from application services
-- write to audit storage in a consistent format
-- attach actor, target entity, action, source, and metadata
-- support transaction-aware writes when mutation and audit entry must succeed together
-
-### `audit_logs` table idea
-
-Possible columns:
-
-- `id`
-- `created_at`
-- `actor_member_id` nullable
-- `actor_discord_id` nullable
-- `actor_type` such as `member`, `system`, `admin`, `job`
-- `action` such as `member.created`, `balance.adjusted`, `item.listed`
-- `entity_type` such as `member`, `inventory_item`, `market_listing`, `notification`
-- `entity_id` nullable string or numeric reference
-- `source` such as `api`, `bot_command`, `oauth`, `job`, `migration`
-- `request_id` nullable
-- `guild_id` nullable
-- `metadata_json`
-
-### Events to log
-
-At minimum, log:
-
-- member creation
-- member profile upgrade/update source changes
-- balance adjustments
-- market purchases and cancellations
-- item grants, transfers, consumptions, and bot sell actions
-- admin economy adjustments
-- streamer permission changes
-- OBS media purchases and refunds
-- notification broadcasts
-- auth-sensitive admin actions
-
-### App-level logs vs MySQL triggers
-
-Prefer application-level audit logs for business events because:
-
-- they can include actor identity and request context
-- they can reflect intent, not just row changes
-- they are easier to reason about across multi-step workflows
-
-Use MySQL triggers only when:
-
-- a minimal low-level safety net is required
-- the event is purely data-level and context is not needed
-- the team explicitly accepts the added database complexity
-
-Recommended default:
-
-- use app-level logging for business audit events
-- avoid broad trigger-based business logic
-
----
-
-## 8. Frontend Architecture for `balkon-website`
-
-The frontend should adopt the same feature-based philosophy.
-
-### Principles
+Target principles:
 
 - feature-based folders
-- `page.tsx` stays thin
-- data fetching and mutations move to hooks or feature services
-- UI composition lives in feature components
-- shared API access goes through a single client layer
+- thin `page.tsx`
+- no scattered raw fetch
+- shared API client
+- feature API helpers
+- data loading/mutations in hooks
+- generic UI in `shared/components`
+- feature UI in `features/*/components`
+- backend permissions are authoritative
 
-### Target structure idea
-
-```text
-src/
-  app/
-    dashboard/
-      profile/
-        page.tsx
-      market/
-        page.tsx
-      inventory/
-        page.tsx
-  features/
-    profile/
-      components/
-      hooks/
-      api/
-      types/
-      utils/
-    market/
-      components/
-      hooks/
-      api/
-      types/
-      utils/
-    inventory/
-      components/
-      hooks/
-      api/
-      types/
-      utils/
-    notifications/
-      components/
-      hooks/
-      api/
-      types/
-    streamer-studio/
-      components/
-      hooks/
-      api/
-      types/
-  shared/
-    api/
-      client.ts
-      auth.ts
-      errors.ts
-    components/
-    hooks/
-    lib/
-    types/
-```
-
-### Frontend rules
-
-- [ ] `page.tsx` should mainly compose feature components and route-level metadata.
-- [ ] Fetching logic should live in hooks or feature API helpers.
-- [ ] Shared request/response parsing should use a common API client.
-- [ ] Auth/session handling should not be duplicated across pages.
-- [ ] Large components should be split by feature sections, not arbitrary line count alone.
+Before large frontend refactor, create `docs/refactor/FRONTEND_INVENTORY.md`.
 
 ---
 
-## 9. OBS Agent Architecture
+## 13. OBS / Relay / Agent Law
 
-The OBS Agent should remain a separate local application, but internal responsibilities should be clearer.
+OBS workflows are high-risk because they combine money, database state, command queue, relay transport, and local OBS side effects.
 
-### Target parts
+Backend responsibilities:
+
+- validate actor/permissions
+- create durable command/action state
+- charge/refund through economy owner
+- audit command and failure/refund events
+- communicate through authenticated relay/queue
+
+OBS Agent responsibilities:
 
 - relay client
 - OBS client
 - config manager
 - secure storage
-- local UI layer
-- status/reporting module
+- local UI/status layer
 
-### Responsibility split
+OBS Agent separation target:
 
-#### Relay client
+```text
+relay connection logic != OBS websocket logic != UI state != config persistence
+```
 
-- maintains backend/relay connection
-- handles reconnect, heartbeat, auth token usage
-- converts transport payloads into internal commands
-
-#### OBS client
-
-- wraps obs-websocket operations
-- knows scenes, sources, media control, reconnect state
-- should not own desktop UI concerns
-
-#### Config manager
-
-- loads and validates persisted settings
-- exposes typed configuration
-- isolates environment and local file storage details
-
-#### Secure storage
-
-- stores agent tokens or sensitive local credentials
-- should not leak secrets to logs or UI
-
-#### UI layer
-
-- desktop screens and status display only
-- reacts to state from services
-- does not implement transport protocol logic
-
-### OBS Agent rules
-
-- [ ] transport code stays separate from OBS command logic
-- [ ] sensitive values use secure storage path when practical
-- [ ] UI should consume state, not own connection side effects directly
+Sensitive OBS/agent tokens must not leak to logs or generic UI state.
 
 ---
 
-## 10. Refactoring Roadmap
+## 14. Required Validation for PRs
 
-The roadmap is incremental and practical.
+Every runtime PR must report:
 
-## Phase 0: diagnostics and guardrails
+- exact commands run
+- `npm run build` result for affected repo when applicable
+- tests/lint if available
+- manual validation checklist for affected flow
+- files changed intentionally
+- files changed unexpectedly
 
-- [ ] Add architecture documentation and contribution rules.
-- [ ] Add scripts for member/profile diagnostics and flow inspection.
-- [ ] Identify high-risk write paths.
-- [ ] Add build, lint, and focused validation expectations for refactors.
-
-## Phase 1: member/profile hardening
-
-- [ ] Centralize member creation and profile sync.
-- [ ] Introduce lifecycle metadata such as `created_source` and `profile_status`.
-- [ ] Make member creation path auditable.
-- [ ] Remove remaining direct `members` inserts outside the member module.
-
-## Phase 2: repository/service layer
-
-- [ ] Introduce repositories for high-change domains first.
-- [ ] Move SQL out of routes and command flows.
-- [ ] Normalize application service entry points for API and bot usage.
-- [ ] Reduce direct `pool.query` usage spread across unrelated services.
-
-## Phase 3: economy/inventory/market transaction safety
-
-- [ ] Wrap balance and item mutations in transaction-aware application services.
-- [ ] Define rollback behavior for multi-step failures.
-- [ ] Guarantee atomic market buy/sell/list/cancel paths.
-- [ ] Guarantee atomic OBS purchase and refund paths where possible.
-
-## Phase 4: `ItemService` split
-
-Split oversized `ItemService.ts` into clearer services such as:
-
-- `ItemCatalogService`
-- `InventoryService`
-- `MarketService`
-- `BotShopService`
-- `CraftService`
-- `ItemAdminService`
-
-Checklist:
-
-- [ ] Preserve existing API shapes during split.
-- [ ] Move SQL into repositories.
-- [ ] Keep each service aligned to one domain responsibility.
-
-## Phase 5: dashboard API cleanup
-
-- [ ] Continue extracting route groups into small route modules.
-- [ ] Standardize request validation and service error mapping.
-- [ ] Keep `registerDashboardRoutes(app)` as a composition layer only.
-- [ ] Clarify security boundaries per route group.
-
-## Phase 6: website split
-
-- [ ] Break large pages into feature folders.
-- [ ] Introduce shared API client and feature hooks.
-- [ ] Reduce cross-page duplication.
-- [ ] Keep SSR/client boundaries explicit.
-
-## Phase 7: audit/security/performance hardening
-
-- [ ] Add structured audit logging for important mutations.
-- [ ] Make permission boundaries explicit per module.
-- [ ] Add missing indexes and high-value performance improvements.
-- [ ] Improve observability for failures and retries.
-- [ ] Add more focused tests around critical workflows.
+Docs-only PRs do not require runtime build unless they change tooling.
 
 ---
 
-## 11. Rules for Future Features
+## 15. Copilot / AI Workflow Law
 
-Every new feature should follow these rules.
+Copilot must not be asked to perform broad refactors without inventory.
 
-### Feature design rules
+Good Copilot tasks:
 
-- [ ] Start with the owning domain.
-- [ ] Define service entry points before adding route code.
-- [ ] Prefer extending an existing module over scattering logic into shared utilities.
-- [ ] Add repository methods instead of embedding SQL in services or routes.
+- create inventory docs
+- list methods and line ranges
+- find direct SQL usage
+- find direct member/balance mutations
+- move pure helpers
+- extract low-risk read-only code
+- preserve public signatures
+- generate validation checklist
 
-### Write safety rules
+Manual senior review required:
 
-- [ ] If a feature changes money, items, permissions, or member lifecycle, design transaction behavior first.
-- [ ] If a feature changes important state, define audit requirements first.
-- [ ] If a feature introduces a new actor path, define permission boundaries first.
+- transaction boundaries
+- economy correctness
+- permission checks
+- audit design
+- DB migration design
+- OAuth/session security
+- OBS relay auth
+- market/shop/craft/jobs purchase/reward flows
+- response shape compatibility
+- production diagnostics/backfill decisions
 
-### API and bot rules
+Prompt rule:
 
-- [ ] Keep API response shapes stable unless there is a deliberate versioned change.
-- [ ] Keep bot command handlers thin.
-- [ ] Shared business rules should be reused by both API and bot flows.
-
-### Schema rules
-
-- [ ] Prefer additive migrations.
-- [ ] Add indexes for new lookup paths.
-- [ ] Avoid premature destructive cleanup.
-
-### Frontend rules
-
-- [ ] Add feature folders for new dashboard capabilities.
-- [ ] Keep pages thin and move behavior into hooks/components.
-- [ ] Reuse shared API client and shared request handling.
+```text
+Do not edit code until inventory is complete.
+Preserve behavior and public response shapes.
+Do not change unrelated files.
+Run validation and summarize the diff.
+```
 
 ---
 
-## Decision Summary
+## 16. Decision Summary
 
-The target architecture for Balkon is:
+Balkon target state:
 
 - one backend codebase with clearer module boundaries
+- API and Discord bot as adapters, not duplicated business layers
 - feature/domain-based layering
 - centralized member lifecycle ownership
 - centralized economy mutation ownership
 - transaction-safe money and item workflows
 - repository-based SQL access
-- audit logging for important state changes
-- thinner dashboard routes and thinner frontend pages
-- clearer OBS Agent internal separation
+- application-level audit logging
+- additive database evolution first
+- thinner dashboard routes
+- thinner frontend pages
+- safer OBS relay/agent separation
 
-This plan should be used as the baseline architecture reference before major new features are added.
+The law is simple:
+
+```text
+Inventory first.
+Small PR second.
+Build and manual validation third.
+No uncontrolled write paths.
+No blind refactor.
+```
