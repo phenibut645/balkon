@@ -35,29 +35,19 @@ export class DiscordMetadataService {
 
   async upsertMemberDiscordProfile(input: UpsertMemberDiscordProfileInput): Promise<void> {
     await pool.query(
-      `INSERT INTO members (
-          ds_member_id,
-          discord_username,
-          discord_global_name,
-          discord_avatar,
-          discord_avatar_url,
-          discord_profile_updated_at,
-          balance,
-          ldm_balance,
-          locale
-       ) VALUES (?, ?, ?, ?, ?, NOW(), 0, 0, 'en')
-       ON DUPLICATE KEY UPDATE
-         discord_username = COALESCE(VALUES(discord_username), discord_username),
-         discord_global_name = COALESCE(VALUES(discord_global_name), discord_global_name),
-         discord_avatar = COALESCE(VALUES(discord_avatar), discord_avatar),
-         discord_avatar_url = COALESCE(VALUES(discord_avatar_url), discord_avatar_url),
-         discord_profile_updated_at = NOW()`,
+      `UPDATE members
+       SET discord_username = COALESCE(?, discord_username),
+           discord_global_name = COALESCE(?, discord_global_name),
+           discord_avatar = COALESCE(?, discord_avatar),
+           discord_avatar_url = COALESCE(?, discord_avatar_url),
+           discord_profile_updated_at = NOW()
+       WHERE ds_member_id = ?`,
       [
-        input.discordId,
         input.username ?? null,
         input.globalName ?? null,
         input.avatar ?? null,
         input.avatarUrl ?? null,
+        input.discordId,
       ],
     );
   }
