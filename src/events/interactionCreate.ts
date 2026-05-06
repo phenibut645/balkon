@@ -4,13 +4,13 @@ import { permissionController } from "../core/PermissionController.js";
 import { CommandAccessLevels } from "../types/database.types.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
 import { DataBaseHandler, dataBaseHandler } from "../core/DataBaseHandler.js";
-import { DiscordMetadataService } from "../core/DiscordMetadataService.js";
+import { memberService } from "../core/MemberService.js";
 
 export const interactionCreateController = async (interaction: Interaction) => {
   console.log("Interaction...")
 
   try {
-    await DiscordMetadataService.getInstance().upsertMemberDiscordProfile({
+    await memberService.ensureMemberFromDiscordProfile({
       discordId: interaction.user.id,
       username: interaction.user.username,
       globalName: interaction.user.globalName,

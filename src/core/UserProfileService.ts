@@ -1,5 +1,6 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
+import { memberService } from "./MemberService.js";
 
 export type AvailableGuild = {
   guildId: string;
@@ -59,12 +60,25 @@ function buildDiscordAvatarUrl(discordId: string, avatar: string | null): string
   return `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.${ext}?size=128`;
 }
 
+function normalizeDisplayText(value: string | null): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length ? normalized : null;
+}
+
 function mapProfileRow(row: ProfileRow): UserPublicProfile {
   const discordId = String(row.discord_id);
   const homeGuildId = row.home_guild_id ? String(row.home_guild_id) : null;
   const homeGuildDisplayName = row.home_guild_display_name ? String(row.home_guild_display_name) : null;
-  const username = row.username ?? row.member_username ?? null;
-  const globalName = row.global_name ?? row.member_global_name ?? null;
+  const username = normalizeDisplayText(row.username)
+    ?? normalizeDisplayText(row.member_username)
+    ?? "Unknown Discord user";
+  const globalName = normalizeDisplayText(row.global_name)
+    ?? normalizeDisplayText(row.member_global_name)
+    ?? null;
   const avatarUrl = buildDiscordAvatarUrl(discordId, row.avatar ?? null)
     || (row.member_avatar_url ? String(row.member_avatar_url) : null)
     || buildDiscordAvatarUrl(discordId, row.member_avatar ?? null);
@@ -94,12 +108,7 @@ export class UserProfileService {
   }
 
   async ensureMember(discordId: string): Promise<void> {
-    await pool.query(
-      `INSERT INTO members (ds_member_id, balance, ldm_balance, locale)
-       VALUES (?, 0, 0, 'en')
-       ON DUPLICATE KEY UPDATE ds_member_id = VALUES(ds_member_id)`,
-      [discordId]
-    );
+    await memberService.ensureMemberByDiscordId(discordId);
   }
 
   async isKnownGuild(guildId: string): Promise<boolean> {

@@ -217,7 +217,7 @@ export class ObsMediaActionService {
     return `SELECT
         oma.id,
         buyer.ds_member_id AS buyer_discord_id,
-        COALESCE(NULLIF(buyer.discord_global_name, ''), NULLIF(buyer.discord_username, ''), buyer.ds_member_id) AS buyer_display_name,
+        COALESCE(NULLIF(buyer.discord_global_name, ''), NULLIF(buyer.discord_username, ''), 'Unknown Discord user') AS buyer_display_name,
         oma.streamer_id,
         streamer.nickname AS streamer_nickname,
         oma.agent_id,
@@ -245,7 +245,7 @@ export class ObsMediaActionService {
     return {
       id: Number(row.id),
       buyerDiscordId: String(row.buyer_discord_id),
-      buyerDisplayName: row.buyer_display_name || row.buyer_discord_id,
+      buyerDisplayName: row.buyer_display_name || "Unknown Discord user",
       streamerId: Number(row.streamer_id),
       streamerNickname: String(row.streamer_nickname),
       agentId: row.agent_id,

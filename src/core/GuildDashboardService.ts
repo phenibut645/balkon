@@ -1,6 +1,7 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { MemberStatuses } from "../types/database.types.js";
+import { memberService } from "./MemberService.js";
 
 export type GuildDashboardUserRole = "owner" | "admin" | "member" | "unknown";
 
@@ -166,12 +167,7 @@ export class GuildDashboardService {
   }
 
   private async ensureMember(discordId: string): Promise<{ id: number; homeGuildId: string | null }> {
-    await pool.query(
-      `INSERT INTO members (ds_member_id, balance, ldm_balance, locale)
-       VALUES (?, 0, 0, 'en')
-       ON DUPLICATE KEY UPDATE ds_member_id = VALUES(ds_member_id)`,
-      [discordId],
-    );
+    await memberService.ensureMemberByDiscordId(discordId);
 
     const [rows] = await pool.query<MemberRow[]>(
       `SELECT id, home_guild_id

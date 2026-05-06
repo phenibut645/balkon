@@ -1,13 +1,13 @@
 import { ChannelType, Message } from "discord.js";
 import { DEVELOPER_DISCORD_ID } from "../config.js";
-import { DiscordMetadataService } from "../core/DiscordMetadataService.js";
+import { memberService } from "../core/MemberService.js";
 
 export const messageCreateController = async (message: Message) => {
     const user = message.author
     if (user.bot) return;
 
     try {
-        await DiscordMetadataService.getInstance().upsertMemberDiscordProfile({
+        await memberService.ensureMemberFromDiscordProfile({
             discordId: user.id,
             username: user.username,
             globalName: user.globalName,

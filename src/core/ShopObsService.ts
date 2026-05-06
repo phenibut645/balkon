@@ -5,6 +5,7 @@ import { getBotCommandQueue } from "./BotCommandQueue.js";
 import { NotificationService } from "./NotificationService.js";
 import { ObsMediaActionService } from "./ObsMediaActionService.js";
 import { ObsRelayMediaShowPayload } from "../types/obs-agent.types.js";
+import { memberService } from "./MemberService.js";
 
 interface ObsShopStreamerRow extends RowDataPacket {
   streamer_id: number;
@@ -452,11 +453,7 @@ export class ShopObsService {
       return row;
     }
 
-    await pool.query(
-      `INSERT INTO members (ds_member_id) VALUES (?)
-       ON DUPLICATE KEY UPDATE ds_member_id = VALUES(ds_member_id)`,
-      [normalizedDiscordId],
-    );
+    await memberService.ensureMemberByDiscordId(normalizedDiscordId);
 
     const [retryRows] = await pool.query<MemberBalanceRow[]>(
       `SELECT id, balance, ds_member_id, discord_username, discord_global_name

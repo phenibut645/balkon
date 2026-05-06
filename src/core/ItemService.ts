@@ -2501,7 +2501,7 @@ export class ItemService {
             return normalizedUsername;
         }
 
-        return discordId;
+        return "Unknown Discord user";
     }
 
     private mapItemTemplateRow(row: ItemTemplateRow): ItemTemplateView {

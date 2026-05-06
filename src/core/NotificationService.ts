@@ -1,5 +1,6 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
+import { memberService } from "./MemberService.js";
 
 export type NotificationSeverity = "info" | "success" | "warning" | "danger";
 
@@ -359,11 +360,6 @@ export class NotificationService {
   }
 
   private async ensureMember(discordId: string): Promise<void> {
-    await pool.query(
-      `INSERT INTO members (ds_member_id, balance, ldm_balance, locale)
-       VALUES (?, 0, 0, 'en')
-       ON DUPLICATE KEY UPDATE ds_member_id = VALUES(ds_member_id)`,
-      [discordId],
-    );
+    await memberService.ensureMemberByDiscordId(discordId);
   }
 }

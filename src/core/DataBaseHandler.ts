@@ -4,6 +4,7 @@ import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembers
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
 import { settingsService } from "./SettingsService.js";
+import { memberService } from "./MemberService.js";
 
 export interface GuildBootstrapSummary {
     guildId: number;
@@ -676,17 +677,12 @@ export class DataBaseHandler {
                 else {
                     if(writeMember){
                         try {
-                            const generalSettings = await settingsService.ensureGeneralSettings();
-                            const startBalance = generalSettings.start_balance;
                             const discordId = member;
-                            const addRecordResponse = await this.addRecords<MembersDB>([{
-                                id: 0,
-                                ds_member_id: discordId,
-                                balance: startBalance
-                            }], "members")
-                            if (DataBaseHandler.isSuccess(addRecordResponse)){
-                                console.log(`Created member ${discordId} with start balance ${startBalance} ODM`);
-                                member = addRecordResponse.data.insertId
+                            const existingMemberId = await memberService.getMemberIdByDiscordId(discordId);
+                            member = await memberService.ensureMemberByDiscordId(discordId);
+                            if (existingMemberId === null){
+                                const generalSettings = await settingsService.ensureGeneralSettings();
+                                console.log(`Created member ${discordId} with start balance ${generalSettings.start_balance} ODM`);
                                 if(!guild && !writeMemberToGuild)  {
                                     return {
                                         success: true,
@@ -696,7 +692,7 @@ export class DataBaseHandler {
                                         }
                                     }
                                 }
-                            } else return addRecordResponse
+                            }
                         }
                         catch(err: unknown) {
                             return DataBaseHandler.errorHandling(err);

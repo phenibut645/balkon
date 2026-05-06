@@ -3,6 +3,7 @@ import { RowDataPacket } from "mysql2";
 import pool from "../../db.js";
 import { ApiAuthUser } from "../types/auth.js";
 import { isBotAdmin } from "../../core/BotAdmin.js";
+import { memberService } from "../../core/MemberService.js";
 
 export interface DiscordTokenResponse {
   access_token: string;
@@ -139,6 +140,14 @@ export class ApiSessionService {
     const tokenExpiresAt = Number.isFinite(input.token.expires_in)
       ? new Date(now + input.token.expires_in * 1000)
       : null;
+
+    await memberService.ensureMemberFromDiscordProfile({
+      discordId: input.discordUser.id,
+      username: input.discordUser.username,
+      globalName: input.discordUser.global_name,
+      avatar: input.discordUser.avatar,
+      avatarUrl: buildDiscordAvatarUrl(input.discordUser.id, input.discordUser.avatar),
+    });
 
     await pool.query(
       `INSERT INTO api_sessions (
