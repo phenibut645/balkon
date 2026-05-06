@@ -29,6 +29,8 @@ No blind refactor.
 No feature growth on top of uncontrolled write paths.
 No SQL in routes or Discord command handlers.
 No direct money/item/member lifecycle mutation outside the owning service/module.
+No god files, god services, catch-all handlers, or hidden ownership.
+No temporary workaround without an owner, risk note, and follow-up path.
 ```
 
 During stabilization, do not add major product features except diagnostics, documentation, validation tooling, additive migrations, and small architecture-safe extractions.
@@ -231,6 +233,36 @@ Forbidden:
 ---
 
 ## 4. Ownership Rules
+
+### Responsibility distribution law
+
+Balkon must not concentrate unrelated responsibilities in one file, one service, one handler, or one generic helper.
+
+Every important domain mutation must have an explicit owner.
+
+Forbidden:
+
+- adding unrelated business logic to an existing large file because it is convenient;
+- using generic helpers to bypass domain ownership;
+- expanding `DataBaseHandler`, `ItemService`, dashboard route files, Discord command handlers, or API route files as catch-all layers;
+- placing SQL or business mutations in routes, Discord commands, UI-facing handlers, or shared helpers that do not own the domain;
+- creating temporary architecture without documenting owner, risk, and follow-up;
+- hiding domain ownership behind names such as `utils`, `helpers`, `manager`, `handler`, or generic `service` files.
+
+Allowed:
+
+- keeping legacy large files temporarily during stabilization;
+- creating inventory documents before splitting large files;
+- extracting one low-risk responsibility at a time;
+- creating temporary adapters only when they preserve behavior and have a documented removal path.
+
+Rule:
+
+```text
+If a change does not have a clear owner, it is not ready to be implemented.
+If a workaround does not have a follow-up, it is not temporary.
+If a file grows because it is convenient, the design is drifting.
+```
 
 ### Member ownership
 
@@ -727,6 +759,7 @@ Balkon target state:
 - one backend codebase with clearer module boundaries
 - API and Discord bot as adapters, not duplicated business layers
 - feature/domain-based layering
+- explicit responsibility ownership instead of god files, catch-all services, or bypass helpers
 - centralized member lifecycle ownership
 - centralized economy mutation ownership
 - transaction-safe money and item workflows
@@ -745,4 +778,6 @@ Small PR second.
 Build and manual validation third.
 No uncontrolled write paths.
 No blind refactor.
+No hidden ownership.
+No undocumented temporary workaround.
 ```
