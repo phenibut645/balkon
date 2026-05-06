@@ -64,6 +64,10 @@ function normalizeOptionalLocale(locale: string | null | undefined): string | un
   return normalized.length ? normalized : undefined;
 }
 
+function isDuplicateEntryError(error: unknown): error is { code: string } {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ER_DUP_ENTRY";
+}
+
 export class MemberService {
   private static instance: MemberService;
 
@@ -129,22 +133,30 @@ export class MemberService {
 
   async ensureMemberByDiscordId(discordId: string, options?: EnsureMemberByDiscordIdOptions): Promise<number> {
     const normalizedDiscordId = normalizeDiscordId(discordId);
+    const existingMemberId = await this.getMemberIdByDiscordId(normalizedDiscordId);
+    if (existingMemberId !== null) {
+      return existingMemberId;
+    }
+
     const normalizedLocale = normalizeOptionalLocale(options?.locale) ?? DEFAULT_MEMBER_LOCALE;
     const startBalance = Number.isFinite(options?.startBalance)
       ? Number(options?.startBalance)
       : Number((await settingsService.ensureGeneralSettings()).start_balance ?? 0);
 
-    const [result] = await pool.query<ResultSetHeader>(
-      `INSERT INTO members (ds_member_id, balance, ldm_balance, locale)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         id = LAST_INSERT_ID(id),
-         ds_member_id = VALUES(ds_member_id)`,
-      [normalizedDiscordId, startBalance, DEFAULT_LDM_BALANCE, normalizedLocale],
-    );
+    try {
+      const [result] = await pool.query<ResultSetHeader>(
+        `INSERT INTO members (ds_member_id, balance, ldm_balance, locale)
+         VALUES (?, ?, ?, ?)`,
+        [normalizedDiscordId, startBalance, DEFAULT_LDM_BALANCE, normalizedLocale],
+      );
 
-    if (result.insertId) {
-      return Number(result.insertId);
+      if (result.insertId) {
+        return Number(result.insertId);
+      }
+    } catch (error) {
+      if (!isDuplicateEntryError(error)) {
+        throw error;
+      }
     }
 
     const memberId = await this.getMemberIdByDiscordId(normalizedDiscordId);
