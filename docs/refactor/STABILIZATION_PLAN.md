@@ -37,9 +37,25 @@ Every task in this plan must follow the law:
 - no SQL in routes or Discord commands
 - no direct member creation outside member owner
 - no direct balance mutation outside economy owner
+- no hidden ownership or catch-all layers
+- no undocumented temporary workaround
 - additive database migrations first
 - audit important mutations
 - run build/manual validation for runtime changes
+
+### Responsibility check
+
+Before implementation, answer:
+
+- Which domain owns this behavior?
+- Which service, repository, or module should contain the mutation?
+- Is this adding responsibility to an already overloaded file?
+- Is this bypassing `MemberService`, `EconomyService`, the future inventory owner, or `AuditLogService`?
+- Is this using `DataBaseHandler`, `ItemService`, a dashboard route file, a Discord command handler, or a generic helper as a catch-all layer?
+- Is this a temporary workaround?
+- If temporary, who owns it, what is the risk, and where is the follow-up documented?
+
+If the owner is unclear, do not implement yet. Create or update the relevant inventory first.
 
 ---
 
@@ -457,16 +473,17 @@ Current recommended order:
 
 1. `docs: define Balkon architecture law`
 2. `docs: add Balkon stabilization plan`
-3. `docs: add backend inventory`
-4. `docs: add database inventory`
-5. `fix: avoid AUTO_INCREMENT burn in MemberService.ensureMemberByDiscordId`
-6. `fix: stop DiscordMetadataService from creating members`
-7. `docs: add DataBaseHandler usage inventory`
-8. `docs: add economy mutation inventory`
-9. `feat: add audit_logs migration and AuditLogService MVP`
-10. `refactor: route one low-risk balance mutation through EconomyService`
-11. `docs: add ItemService inventory`
-12. `refactor: extract one low-risk ItemService helper/service`
+3. `docs: add responsibility distribution law`
+4. `docs: add backend inventory`
+5. `docs: add database inventory`
+6. `fix: avoid AUTO_INCREMENT burn in MemberService.ensureMemberByDiscordId`
+7. `fix: stop DiscordMetadataService from creating members`
+8. `docs: add DataBaseHandler usage inventory`
+9. `docs: add economy mutation inventory`
+10. `feat: add audit_logs migration and AuditLogService MVP`
+11. `refactor: route one low-risk balance mutation through EconomyService`
+12. `docs: add ItemService inventory`
+13. `refactor: extract one low-risk ItemService helper/service`
 
 This order can change when new facts are discovered, but changes must be justified.
 
@@ -481,10 +498,18 @@ Every runtime PR should include:
 
 ## Scope
 
+## Responsibility check
+- [ ] domain owner identified
+- [ ] target service/repository/module identified
+- [ ] no catch-all layer expanded without inventory
+- [ ] no generic helper used to bypass ownership
+- [ ] temporary workaround has owner, risk, and follow-up, or no workaround was added
+
 ## Architecture law checks
 - [ ] no SQL added to routes/commands
 - [ ] no new direct member creation outside MemberService/member repository
 - [ ] no new direct balance mutation outside EconomyService/economy repository
+- [ ] no hidden ownership or catch-all layer introduced
 - [ ] no large-file blind refactor
 - [ ] response shapes preserved or explicitly documented
 
