@@ -5,6 +5,7 @@ import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
 import { guildChannelCacheService } from "./GuildChannelCacheService.js";
 import { guildLogSettingsService } from "./GuildLogSettingsService.js";
+import { guildRoleCacheService } from "./GuildRoleCacheService.js";
 import { settingsService } from "./SettingsService.js";
 import { guildRecordService } from "./GuildRecordService.js";
 import { memberService } from "./MemberService.js";
@@ -370,45 +371,7 @@ export class DataBaseHandler {
     }
 
     private async ensureGuildRoles(guildId: number, discordRoleIds: string[]): Promise<DBResponse<{ synced: number; removed: number }>> {
-        try {
-            const existingResponse = await this.getFromTable<GuildRolesDB>("guild_roles", { guild_id: guildId });
-            if (DataBaseHandler.isFail(existingResponse)) {
-                return existingResponse;
-            }
-
-            const existingIds = new Set(existingResponse.data.map(role => role.ds_role_id));
-            const discordIdSet = new Set(discordRoleIds);
-            const rolesToInsert = discordRoleIds
-                .filter(roleId => !existingIds.has(roleId))
-                .map(roleId => ({
-                    id: 0,
-                    guild_id: guildId,
-                    ds_role_id: roleId,
-                }));
-            const staleRoleIds = existingResponse.data
-                .filter(role => !discordIdSet.has(role.ds_role_id))
-                .map(role => role.id);
-
-            if (staleRoleIds.length) {
-                const placeholders = staleRoleIds.map(() => "?").join(", ");
-                await pool.query(`DELETE FROM guild_roles WHERE id IN (${placeholders})`, staleRoleIds);
-            }
-
-            if (rolesToInsert.length) {
-                const insertResponse = await this.addRecords<GuildRolesDB>(rolesToInsert, "guild_roles");
-                if (DataBaseHandler.isFail(insertResponse)) {
-                    return insertResponse;
-                }
-            }
-
-            return {
-                success: true,
-                data: { synced: rolesToInsert.length, removed: staleRoleIds.length },
-            };
-        }
-        catch (err: unknown) {
-            return DataBaseHandler.errorHandling(err);
-        }
+        return guildRoleCacheService.ensureGuildRoles(guildId, discordRoleIds);
     }
 
     private resolveBootstrapChannelId(guild: Guild): string | null {
