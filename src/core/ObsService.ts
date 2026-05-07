@@ -2,7 +2,7 @@ import OBSWebSocket from "obs-websocket-js";
 import { RowDataPacket } from "mysql2";
 import { OBS_WEBSOCKET_PASSWORD, OBS_WEBSOCKET_URL } from "../config.js";
 import pool from "../db.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
+import { memberService } from "./MemberService.js";
 
 interface ObsVersionResponse {
     obsVersion?: string | null;
@@ -209,26 +209,18 @@ export class ObsService {
     async setConnectionConfig(input: { url: string; password?: string | null; updatedByDiscordId: string }): Promise<void> {
         const normalizedUrl = this.normalizeObsUrl(input.url);
         const normalizedPassword = input.password === undefined ? null : input.password;
-        const updater = await DataBaseHandler.getInstance().isMemberExists(input.updatedByDiscordId, true);
+        const updatedByMemberId = await this.resolveUpdaterMemberId(input.updatedByDiscordId);
 
-        if (DataBaseHandler.isFail(updater) || !updater.data.memberId) {
-            throw new Error("Unable to resolve bot admin in database.");
-        }
-
-        await this.upsertSetting("obs_websocket_url", normalizedUrl, updater.data.memberId);
-        await this.upsertSetting("obs_websocket_password", normalizedPassword, updater.data.memberId);
+        await this.upsertSetting("obs_websocket_url", normalizedUrl, updatedByMemberId);
+        await this.upsertSetting("obs_websocket_password", normalizedPassword, updatedByMemberId);
         await this.disconnect();
     }
 
     async clearConnectionConfig(updatedByDiscordId: string): Promise<void> {
-        const updater = await DataBaseHandler.getInstance().isMemberExists(updatedByDiscordId, true);
+        const updatedByMemberId = await this.resolveUpdaterMemberId(updatedByDiscordId);
 
-        if (DataBaseHandler.isFail(updater) || !updater.data.memberId) {
-            throw new Error("Unable to resolve bot admin in database.");
-        }
-
-        await this.upsertSetting("obs_websocket_url", null, updater.data.memberId);
-        await this.upsertSetting("obs_websocket_password", null, updater.data.memberId);
+        await this.upsertSetting("obs_websocket_url", null, updatedByMemberId);
+        await this.upsertSetting("obs_websocket_password", null, updatedByMemberId);
         await this.disconnect();
     }
 
@@ -312,6 +304,14 @@ export class ObsService {
              ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by_member_id = VALUES(updated_by_member_id), updated_at = CURRENT_TIMESTAMP`,
             [settingKey, settingValue, updatedByMemberId]
         );
+    }
+
+    private async resolveUpdaterMemberId(updatedByDiscordId: string): Promise<number> {
+        try {
+            return await memberService.ensureMemberByDiscordId(updatedByDiscordId, { createdSource: "unknown" });
+        } catch {
+            throw new Error("Unable to resolve bot admin in database.");
+        }
     }
 
     private normalizeObsUrl(url: string): string {
