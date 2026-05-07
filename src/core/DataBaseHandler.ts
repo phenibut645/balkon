@@ -1,8 +1,9 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, LogsChannelsDB, LogTypesDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
+import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, LogsChannelsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
+import { guildLogSettingsService } from "./GuildLogSettingsService.js";
 import { settingsService } from "./SettingsService.js";
 import { guildRecordService } from "./GuildRecordService.js";
 import { memberService } from "./MemberService.js";
@@ -561,32 +562,7 @@ export class DataBaseHandler {
     }
 
     private async ensureLogType(name: string): Promise<DBResponse<number>> {
-        try {
-            const existingResponse = await this.getFromTable<LogTypesDB>("log_types", { name });
-            if (DataBaseHandler.isFail(existingResponse)) {
-                return existingResponse;
-            }
-
-            if (existingResponse.data.length) {
-                return {
-                    success: true,
-                    data: existingResponse.data[0].id,
-                };
-            }
-
-            const insertResponse = await this.addRecords<LogTypesDB>([{ id: 0, name }], "log_types");
-            if (DataBaseHandler.isFail(insertResponse)) {
-                return insertResponse;
-            }
-
-            return {
-                success: true,
-                data: insertResponse.data.insertId,
-            };
-        }
-        catch (err: unknown) {
-            return DataBaseHandler.errorHandling(err);
-        }
+        return guildLogSettingsService.ensureLogType(name);
     }
 
     async deleteGuildFromDB(guild: Guild | string | number): Promise<DBResponse<null>>{
