@@ -40,9 +40,27 @@ export class DiscordMetadataService {
            discord_global_name = COALESCE(?, discord_global_name),
            discord_avatar = COALESCE(?, discord_avatar),
            discord_avatar_url = COALESCE(?, discord_avatar_url),
-           discord_profile_updated_at = NOW()
+           discord_profile_updated_at = CURRENT_TIMESTAMP,
+           discord_profile_status = CASE
+             WHEN COALESCE(?, discord_username) IS NOT NULL
+               AND COALESCE(?, discord_avatar_url) IS NOT NULL
+               THEN 'complete'
+             WHEN COALESCE(?, discord_username) IS NOT NULL
+               OR COALESCE(?, discord_global_name) IS NOT NULL
+               OR COALESCE(?, discord_avatar) IS NOT NULL
+               OR COALESCE(?, discord_avatar_url) IS NOT NULL
+               THEN 'partial'
+             ELSE 'minimal'
+           END,
+           updated_at = CURRENT_TIMESTAMP
        WHERE ds_member_id = ?`,
       [
+        input.username ?? null,
+        input.globalName ?? null,
+        input.avatar ?? null,
+        input.avatarUrl ?? null,
+        input.username ?? null,
+        input.avatarUrl ?? null,
         input.username ?? null,
         input.globalName ?? null,
         input.avatar ?? null,
