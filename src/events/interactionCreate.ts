@@ -3,7 +3,8 @@ import { commands } from "../core/commands/CommandsLoader.js";
 import { permissionController } from "../core/PermissionController.js";
 import { CommandAccessLevels } from "../types/database.types.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
-import { DataBaseHandler, dataBaseHandler } from "../core/DataBaseHandler.js";
+import { DataBaseHandler } from "../core/DataBaseHandler.js";
+import { guildMemberService } from "../core/GuildMemberService.js";
 import { memberService } from "../core/MemberService.js";
 
 export const interactionCreateController = async (interaction: Interaction) => {
@@ -25,8 +26,12 @@ export const interactionCreateController = async (interaction: Interaction) => {
   }
 
   if (interaction.inGuild()) {
-    const response = await dataBaseHandler.isMemberExists(interaction.user.id, true, interaction.guildId, true, interaction);
-    if (DataBaseHandler.isFail(response)) {
+    const response = await guildMemberService.ensureInteractionGuildMember({
+      discordUserId: interaction.user.id,
+      discordGuildId: interaction.guildId,
+      isGuildOwner: interaction.user.id === interaction.guild?.ownerId,
+    });
+    if (!response.success) {
       console.error("Failed to sync interaction user with DB", response.error);
     }
   }
