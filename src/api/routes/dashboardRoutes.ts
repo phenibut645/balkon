@@ -9,6 +9,7 @@ import { GuildDashboardService } from "../../core/GuildDashboardService.js";
 import { UserProfileService } from "../../core/UserProfileService.js";
 import { getBotAdminDashboardStats, isBotAdmin } from "../../core/BotAdmin.js";
 import { StreamerAccessService } from "../../core/StreamerAccessService.js";
+import { memberService } from "../../core/MemberService.js";
 import { streamerService } from "../../core/StreamerService.js";
 import { registerStreamerStudioRoutes } from "./dashboard/streamerStudioRoutes.js";
 import { registerAdminStreamerRoutes } from "./dashboard/adminStreamerRoutes.js";
@@ -372,17 +373,21 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   await registerMarketRoutes(app);
   await registerInventoryRoutes(app);
 
-  app.get("/me", { preHandler: requireAuth }, async request => ({
-    ok: true,
-    me: {
-      discordId: request.authUser!.discordId,
-      roles: request.authUser!.roles,
-      username: request.authUser!.username ?? null,
-      globalName: request.authUser!.globalName ?? null,
-      avatar: request.authUser!.avatar ?? null,
-      avatarUrl: request.authUser!.avatarUrl ?? null,
-    },
-  }));
+  app.get("/me", { preHandler: requireAuth }, async request => {
+    await memberService.markMemberSeenByWebsiteActivity(request.authUser!.discordId);
+
+    return {
+      ok: true,
+      me: {
+        discordId: request.authUser!.discordId,
+        roles: request.authUser!.roles,
+        username: request.authUser!.username ?? null,
+        globalName: request.authUser!.globalName ?? null,
+        avatar: request.authUser!.avatar ?? null,
+        avatarUrl: request.authUser!.avatarUrl ?? null,
+      },
+    };
+  });
 
   app.get("/overview/me", { preHandler: requireAuth }, async request => {
     try {

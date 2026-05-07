@@ -255,6 +255,21 @@ export class MemberService {
       [normalizedDiscordId],
     );
   }
+
+  async markMemberSeenByWebsiteActivity(discordId: string): Promise<void> {
+    const normalizedDiscordId = normalizeDiscordId(discordId);
+
+    await pool.query(
+      `UPDATE members
+       SET last_seen_at = CURRENT_TIMESTAMP
+       WHERE ds_member_id = ?
+         AND (
+           last_seen_at IS NULL
+           OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL 24 HOUR
+         )`,
+      [normalizedDiscordId],
+    );
+  }
 }
 
 export const memberService = MemberService.getInstance();
