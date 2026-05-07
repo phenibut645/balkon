@@ -3,6 +3,7 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
 import { DataBaseHandler, DBResponse, DBResponseSuccess } from "./DataBaseHandler.js";
+import { memberService } from "./MemberService.js";
 import { ObsMediaAction } from "./ObsService.js";
 import { GuildStreamersDB, GuildsDB, ItemServiceActionType, ItemServiceActionsDB, MembersDB, StreamersDB } from "../types/database.types.js";
 import { itemService } from "./ItemService.js";
@@ -1215,12 +1216,14 @@ export class StreamerService {
     }
 
     private async ensureMemberByDiscordId(discordUserId: string): Promise<DBResponseSuccess<MembersDB>> {
-        const response = await DataBaseHandler.getInstance().isMemberExists(discordUserId, true);
-        if (DataBaseHandler.isFail(response) || !response.data.memberId) {
+        let memberId: number;
+        try {
+            memberId = await memberService.ensureMemberByDiscordId(discordUserId, { createdSource: "unknown" });
+        } catch {
             throw new Error("Unable to resolve member in database.");
         }
 
-        const member = await DataBaseHandler.getInstance().getFromTable<MembersDB>("members", { id: response.data.memberId });
+        const member = await DataBaseHandler.getInstance().getFromTable<MembersDB>("members", { id: memberId });
         if (DataBaseHandler.isFail(member) || !member.data.length) {
             throw new Error("Unable to load member record.");
         }
