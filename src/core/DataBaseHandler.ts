@@ -4,6 +4,7 @@ import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembers
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
 import { settingsService } from "./SettingsService.js";
+import { guildRecordService } from "./GuildRecordService.js";
 import { memberService } from "./MemberService.js";
 
 export interface GuildBootstrapSummary {
@@ -210,30 +211,7 @@ export class DataBaseHandler {
     }
 
     async addGuildToDB(guild: Guild | string): Promise<DBResponse<InsertIdResponse>>{
-        try{
-            const generalSettings = await settingsService.ensureGeneralSettings();
-            const discordGuildId = guild instanceof Guild ? guild.id : guild;
-            const earningMultiply = generalSettings.default_earning_multiply;
-            const result = await this.addRecords<GuildsDB>([{
-                id: 0,
-                ds_guild_id: discordGuildId,
-                earning_multiply: earningMultiply
-            }], "guilds");
-            if(DataBaseHandler.isSuccess(result)) {
-                console.log(`Created guild ${discordGuildId} with earning multiply ${earningMultiply}`);
-                return {
-                    success: true,
-                    data: {
-                        insertId: result.data.insertId
-                    }
-                }
-            }
-
-            return result;
-        }
-        catch(err: unknown) {
-            return DataBaseHandler.errorHandling(err);
-        }
+        return guildRecordService.addGuildToDB(guild);
     }
 
     async ensureGuildBootstrap(guild: Guild): Promise<DBResponse<GuildBootstrapSummary>> {
@@ -326,38 +304,7 @@ export class DataBaseHandler {
     }
 
     private async ensureGuildRecord(guild: Guild | string): Promise<DBResponse<GuildsDB>> {
-        try {
-            const discordGuildId = guild instanceof Guild ? guild.id : guild;
-            const existingGuildResponse = await this.getFromTable<GuildsDB>("guilds", { ds_guild_id: discordGuildId });
-            if (DataBaseHandler.isFail(existingGuildResponse)) {
-                return existingGuildResponse;
-            }
-
-            if (existingGuildResponse.data.length) {
-                return {
-                    success: true,
-                    data: existingGuildResponse.data[0],
-                };
-            }
-
-            const addGuildResponse = await this.addGuildToDB(guild);
-            if (DataBaseHandler.isFail(addGuildResponse)) {
-                return addGuildResponse;
-            }
-
-            const createdGuildResponse = await this.getFromTable<GuildsDB>("guilds", { id: addGuildResponse.data.insertId });
-            if (DataBaseHandler.isFail(createdGuildResponse) || !createdGuildResponse.data.length) {
-                return DataBaseHandler.errorHandling(new Error("Created guild record was not found."));
-            }
-
-            return {
-                success: true,
-                data: createdGuildResponse.data[0],
-            };
-        }
-        catch (err: unknown) {
-            return DataBaseHandler.errorHandling(err);
-        }
+        return guildRecordService.ensureGuildRecord(guild);
     }
 
     private async ensureGuildMemberStatus(discordUserId: string, guildId: number, memberStatusId: MemberStatuses): Promise<DBResponse<{ guildMemberId: number }>> {
