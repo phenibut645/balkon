@@ -1,5 +1,6 @@
 import pool from "../db.js";
 import { DataBaseHandler, DBResponse, DBResponseSuccess } from "./DataBaseHandler.js";
+import { memberService } from "./MemberService.js";
 import { BotSettingsDB, MembersDB } from "../types/database.types.js";
 import { LocalesCodes } from "../types/locales.type.js";
 import { normalizeLocale } from "../utils/i18n.js";
@@ -67,12 +68,14 @@ export class LocaleService {
     }
 
     private async ensureMember(discordUserId: string): Promise<DBResponseSuccess<MembersDB>> {
-        const existsResponse = await DataBaseHandler.getInstance().isMemberExists(discordUserId, true);
-        if (DataBaseHandler.isFail(existsResponse) || !existsResponse.data.memberId) {
+        let memberId: number;
+        try {
+            memberId = await memberService.ensureMemberByDiscordId(discordUserId, { createdSource: "unknown" });
+        } catch {
             throw new Error("Unable to resolve member.");
         }
 
-        const memberResponse = await DataBaseHandler.getInstance().getFromTable<MembersDB>("members", { id: existsResponse.data.memberId });
+        const memberResponse = await DataBaseHandler.getInstance().getFromTable<MembersDB>("members", { id: memberId });
         if (DataBaseHandler.isFail(memberResponse) || !memberResponse.data.length) {
             throw new Error("Member record not found.");
         }
