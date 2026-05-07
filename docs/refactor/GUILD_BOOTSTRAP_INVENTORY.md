@@ -9,8 +9,10 @@ This document is inventory-only. It does not change runtime code, schema, migrat
 Implementation status note:
 
 - KAN-33 extracted base guild record creation/lookup into `src/core/GuildRecordService.ts`.
-- `DataBaseHandler.addGuildToDB(...)` and private `ensureGuildRecord(...)` remain compatibility wrappers.
-- External callers still use `DataBaseHandler` wrappers; full guild bootstrap extraction is not complete.
+- KAN-36 extracted `ensureLogType(name)` into `src/core/GuildLogSettingsService.ts`.
+- KAN-37 extracted `ensureDefaultLogChannels(guildId, channelId)` into `src/core/GuildLogSettingsService.ts`.
+- `DataBaseHandler.addGuildToDB(...)`, private `ensureGuildRecord(...)`, private `ensureLogType(...)`, and private `ensureDefaultLogChannels(...)` remain compatibility wrappers.
+- External callers and orchestration still reach these paths through `DataBaseHandler`; full guild bootstrap extraction is not complete.
 
 ## Purpose / Scope
 
@@ -79,8 +81,8 @@ No HTTP route entry point was found that directly calls `ensureGuildBootstrap(..
 | `ensureGuildChannels(guildId, discordChannelIds)` | Sync guild channel cache to Discord snapshot | Loads current `guild_channels`, inserts missing channel ids, deletes stale `guild_channels`, then deletes stale `logs_channels` rows for channels no longer present. | `getFromTable(...)`, `addRecords(...)`, raw `pool.query(...)` deletes | inserts `guild_channels`; deletes `guild_channels` and `logs_channels` | high | Stale cleanup is destructive and cross-table. Mark as high-risk. |
 | `ensureGuildRoles(guildId, discordRoleIds)` | Sync guild role cache to Discord snapshot | Loads current `guild_roles`, inserts missing role ids, deletes stale `guild_roles`. | `getFromTable(...)`, `addRecords(...)`, raw `pool.query(...)` delete | inserts/deletes `guild_roles` | high | Stale role cleanup is destructive. Mark as high-risk. |
 | `resolveBootstrapChannelId(guild)` | Pick best text channel for bootstrap/log defaults | Prefers `systemChannelId` when sendable, otherwise first sendable text channel, ignoring threads. | guild channel cache in Discord.js only | none | medium | Pure runtime helper; safe to leave coupled to bootstrap orchestrator until write surfaces are isolated. |
-| `ensureDefaultLogChannels(guildId, channelId)` | Ensure default log channel rows exist and follow chosen bootstrap channel | No-op when channel is null. Ensures `ban_logs` and `mute_logs` log types exist, then inserts missing `logs_channels` rows or updates channel id when changed. | `ensureLogType(...)`, `getFromTable(...)`, `addRecords(...)`, `updateTable(...)` | inserts/updates `log_types`, `logs_channels` | high | This is settings/config ownership, not just guild cache sync. Keep separate from channel cache extraction planning. |
-| `ensureLogType(name)` | Resolve-or-create log type lookup row | Looks up `log_types` by `name`; inserts one if missing. | `getFromTable(...)`, `addRecords(...)` | inserts `log_types` | medium | Small lookup helper; candidate to move later with log settings ownership. |
+| `ensureDefaultLogChannels(guildId, channelId)` | Ensure default log channel rows exist and follow chosen bootstrap channel | `DataBaseHandler` now delegates to `GuildLogSettingsService`, which preserves the existing behavior: no-op on null channel, ensure `ban_logs` and `mute_logs`, insert missing `logs_channels` rows, and update only `ds_channel_id` when the first existing row differs. | `DataBaseHandler` compatibility wrapper; `GuildLogSettingsService`; `ensureLogType(...)`; direct `logs_channels` read/insert/update | inserts/updates `log_types`, `logs_channels` | high | Wrapper extraction was completed by KAN-37, but orchestration still consumes it through `DataBaseHandler` and stale cleanup warnings elsewhere remain unchanged. |
+| `ensureLogType(name)` | Resolve-or-create log type lookup row | `DataBaseHandler` now delegates to `GuildLogSettingsService`, which preserves the existing behavior: read `log_types` by name, return the first existing row id, or insert one if missing. | `DataBaseHandler` compatibility wrapper; `GuildLogSettingsService`; direct `log_types` read/insert | inserts `log_types` | medium | Wrapper extraction was completed by KAN-36, but broader guild log settings ownership is still only partially implemented. |
 | `deleteGuildFromDB(guild)` | Delete guild row by id or Discord id | Resolves guild id input form and runs a raw `DELETE FROM guilds ...`. Returns not found when no row deleted. | raw `pool.query(...)` | deletes `guilds` row and all cascading children | high | Direct destructive path. Must not be touched in a first extraction. |
 
 ## Tables Touched Table
@@ -146,7 +148,7 @@ These are inventory candidates only. They are not a rewrite plan.
 | `GuildMemberService` | Ensure guild-member relationship and member status | `ensureGuildMemberStatus(...)` | High-risk because it depends on legacy `isMemberExists(...)`. |
 | guild channel repository | Read/insert/delete channel cache rows | channel read/insert/delete parts of `ensureGuildChannels(...)` | Must explicitly keep stale cleanup semantics stable if ever extracted. |
 | guild role repository | Read/insert/delete role cache rows | role read/insert/delete parts of `ensureGuildRoles(...)` | Same stale cleanup warning as channels. |
-| guild log settings service | Resolve log types and default log channel bindings | `ensureDefaultLogChannels(...)`, `ensureLogType(...)` | This is settings/config ownership, not only guild bootstrap plumbing. |
+| `GuildLogSettingsService` | Resolve log types and default log channel bindings | `ensureDefaultLogChannels(...)`, `ensureLogType(...)` | Partially implemented by KAN-36 and KAN-37 for log type lookup/creation and default log channel configuration only. `DataBaseHandler` wrappers and broader bootstrap orchestration remain in place. |
 
 ## Do-Not-Touch List
 
@@ -168,9 +170,9 @@ This is intentionally small-step and inventory-driven.
    Completed scope: `addGuildToDB(...)` and `ensureGuildRecord(...)` only.
    Current state: base guild record creation/lookup now lives in `GuildRecordService`, while `DataBaseHandler` keeps compatibility wrappers and all broader bootstrap behavior remains unchanged.
 
-2. Inventory-preserving wrapper around guild log lookup/config.
-   Candidate scope: `ensureLogType(...)` and maybe read/write pieces of `ensureDefaultLogChannels(...)` without changing behavior.
-   Why future: it is a narrower config/settings surface than full bootstrap orchestration, but it is still future work and should remain separate from stale cleanup or destructive paths.
+2. Completed by KAN-36 and KAN-37: inventory-preserving guild log settings wrapper extraction.
+   Completed scope: `ensureLogType(...)` and `ensureDefaultLogChannels(...)` only.
+   Current state: `GuildLogSettingsService` now owns log type lookup/creation and default log channel configuration, while `DataBaseHandler` keeps compatibility wrappers and `ensureGuildBootstrap(...)` orchestration remains unchanged.
 
 3. Separate channel cache sync from orchestration, but preserve exact stale-delete behavior.
    Candidate scope: only after a dedicated test/behavior snapshot exists for `ensureGuildChannels(...)`.
@@ -198,8 +200,8 @@ This sequence is not a mandate. It is the smallest extraction order suggested by
 
 ## Explicit Non-Changes
 
-- No runtime code was changed by this KAN-34 documentation update.
-- No schema or migration file was changed by this KAN-34 documentation update.
-- KAN-33 already extracted only the base guild record creation/lookup wrapper into `GuildRecordService`; no additional `DataBaseHandler` methods were moved by this documentation update.
+- No runtime code was changed by this KAN-38 documentation update.
+- No schema or migration file was changed by this KAN-38 documentation update.
+- KAN-33, KAN-36, and KAN-37 already extracted only the base guild record and guild log settings wrappers into `GuildRecordService` and `GuildLogSettingsService`; no additional `DataBaseHandler` methods were moved by this documentation update.
 - No additional refactor was performed by this documentation update.
 - No build is required for this docs-only task.
