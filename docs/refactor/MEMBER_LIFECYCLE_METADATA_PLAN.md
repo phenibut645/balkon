@@ -294,6 +294,64 @@ Planned follow-up tasks:
 - identify the exact website request boundary that counts as authenticated user activity before wiring the website update path
 - re-evaluate whether interaction writes need throttling only if database pressure appears in production metrics
 
+### KAN-26 website authenticated activity boundary
+
+This subsection records the implementation boundary decision for future website `last_seen_at` writes.
+
+Current authentication boundary facts:
+
+- backend authentication is currently resolved in `src/api/auth/session.ts` by the global `attachDevSession` preHandler hook
+- `attachDevSession` resolves `request.authUser` either from a valid API session cookie or from explicit dev headers in non-production
+- `requireAuth` only checks whether `request.authUser` exists; it is not a safe activity boundary because it is reused by many authenticated routes
+
+Decision:
+
+1. The current backend path that proves a website user is authenticated is session resolution in `attachDevSession`, but that hook is too broad for `last_seen_at` writes.
+2. The recommended website activity boundary is the lightweight authenticated bootstrap endpoint `GET /api/me` defined in `src/api/routes/dashboardRoutes.ts`.
+3. Future website `last_seen_at` writes should happen in one explicit route boundary, not in session resolution middleware and not in generic `requireAuth`.
+4. The `24 HOUR` throttle from KAN-24 remains the approved website policy.
+5. Throttling should use the fixed SQL condition on `members.last_seen_at` and should continue to avoid any new table.
+
+Why `GET /api/me` is the recommended boundary:
+
+- it is authenticated and lightweight
+- it already returns the normalized current user identity payload used to bootstrap website state
+- it is narrower and safer than global middleware because it avoids hidden writes on every authenticated request
+- it is less ambiguous than heavier dashboard endpoints that may be called repeatedly for refresh, polling, or data hydration
+
+Requests that should not count as website activity by default:
+
+- global session resolution in `attachDevSession`
+- generic `requireAuth` middleware checks
+- data-heavy dashboard fetches such as `GET /api/overview/me`, `GET /api/guilds/me`, `GET /api/profile/me`, inventory, market, notifications, or streamer studio endpoints
+- mutation endpoints such as `PATCH /api/profile/me` until a separate product decision says profile edits should also count independently
+- any future background refresh, polling, prefetch, or silent retry path
+- development-only header auth resolution should not expand the write boundary beyond the chosen explicit endpoint
+
+Approved future website write shape:
+
+```sql
+UPDATE members
+SET last_seen_at = CURRENT_TIMESTAMP
+WHERE ds_member_id = ?
+  AND (
+    last_seen_at IS NULL
+    OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL 24 HOUR
+  );
+```
+
+Implementation guidance for the future task:
+
+- call the existing `MemberService` ownership path from the explicit `GET /api/me` route after authentication is already resolved
+- do not place the write in `attachDevSession`
+- do not place the write in `requireAuth`
+- do not fan the write out to all authenticated dashboard routes
+- if the frontend later stops using `GET /api/me` as the stable bootstrap request, revisit this boundary before implementation rather than widening middleware writes
+
+Exact next implementation task:
+
+- implement throttled website `last_seen_at` updates only on `GET /api/me` using the fixed `24 HOUR` SQL condition through `MemberService`
+
 ## 10. Validation queries
 
 The migration implementation task should run validation queries before and after backfill.
