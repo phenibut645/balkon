@@ -235,8 +235,8 @@ Current implementation status:
 
 - OAuth login updates `last_seen_at` on every successful session creation.
 - Discord interaction updates `last_seen_at` on every successful interaction member sync.
-- Discord message activity is not throttled yet because message-based tracking is not implemented.
-- Website authenticated API activity is not throttled yet because website activity tracking is not implemented.
+- Discord message activity updates `last_seen_at` with the approved `15 MINUTE` throttle.
+- Website authenticated API activity updates `last_seen_at` only on `GET /api/me` with the approved `24 HOUR` throttle.
 
 Decisions:
 
@@ -289,9 +289,7 @@ Guardrails:
 
 Planned follow-up tasks:
 
-- implement throttled Discord message `last_seen_at` updates using the `15 MINUTE` SQL condition
-- implement throttled website authenticated API `last_seen_at` updates using the `24 HOUR` SQL condition
-- identify the exact website request boundary that counts as authenticated user activity before wiring the website update path
+- review whether Discord interaction writes need throttling only if production metrics show write pressure
 - re-evaluate whether interaction writes need throttling only if database pressure appears in production metrics
 
 ### KAN-26 website authenticated activity boundary
@@ -350,7 +348,61 @@ Implementation guidance for the future task:
 
 Exact next implementation task:
 
-- implement throttled website `last_seen_at` updates only on `GET /api/me` using the fixed `24 HOUR` SQL condition through `MemberService`
+- implemented: throttled website `last_seen_at` updates only on `GET /api/me` using the fixed `24 HOUR` SQL condition through `MemberService`
+
+### KAN-28 stabilization checkpoint
+
+This subsection records the consolidated implementation state after the member lifecycle metadata stabilization chain.
+
+Checkpoint summary:
+
+| Area | Implemented state | Owner/path | Notes |
+| --- | --- | --- | --- |
+| Schema columns | `created_at`, `updated_at`, `created_source`, `discord_profile_status`, `last_seen_at` exist in baseline and additive migration | `sql/tables.sql`, `sql/migrations/020_add_member_lifecycle_metadata.sql` | additive and nullable |
+| Legacy backfill | existing rows backfill to `created_source = 'legacy'`; profile status backfills to `minimal` / `partial` / `complete` | migration `020_add_member_lifecycle_metadata.sql` | deterministic SQL only |
+| New member insert | new rows set `created_at`, `updated_at`, `created_source`, `discord_profile_status = 'minimal'` | `MemberService.ensureMemberByDiscordId(...)` | duplicate race re-selects existing row without overwrite |
+| OAuth creation flow | explicit `createdSource = 'oauth'` | `ApiSessionService.createSession(...)` | also writes `last_seen_at` unconditionally after successful ensure |
+| Discord interaction flow | explicit `createdSource = 'discord_interaction'` | `interactionCreateController(...)` | also writes `last_seen_at` unconditionally after successful ensure |
+| Discord message flow | explicit `createdSource = 'discord_message'` | `messageCreateController(...)` | writes `last_seen_at` with `15 MINUTE` throttle |
+| Profile hydration | update-only profile cache hydration recalculates `discord_profile_status` and sets `updated_at` | `DiscordMetadataService.upsertMemberDiscordProfile(...)` | does not create members |
+| Website activity flow | `GET /api/me` only | `dashboardRoutes.ts` + `MemberService.markMemberSeenByWebsiteActivity(...)` | writes `last_seen_at` with `24 HOUR` throttle |
+
+Checklist confirmation:
+
+1. Lifecycle columns exist in both `sql/tables.sql` and `sql/migrations/020_add_member_lifecycle_metadata.sql`.
+2. Existing rows backfill to `legacy` with profile status limited to `minimal`, `partial`, and `complete`.
+3. `MemberService` is the owner of member lifecycle writes for creation source, creation timestamps, and activity writes.
+4. New member inserts set `created_at`, `updated_at`, `created_source`, and `discord_profile_status = 'minimal'`.
+5. Known creation flows pass explicit sources: OAuth -> `oauth`, Discord interaction -> `discord_interaction`, Discord message -> `discord_message`.
+6. `DiscordMetadataService` remains update-only for member profile hydration and contains no `INSERT INTO members`.
+7. Profile hydration updates `discord_profile_status` and `updated_at`, but does not update `created_at`, `created_source`, or `last_seen_at`.
+8. Activity writes are centralized in `MemberService` methods: unthrottled `markMemberSeenByDiscordId(...)`, throttled `markMemberSeenByDiscordMessage(...)`, and throttled `markMemberSeenByWebsiteActivity(...)`.
+9. Unconditional member `last_seen_at` writes exist only for OAuth login and Discord interaction.
+10. Discord message activity uses the fixed `15 MINUTE` throttle.
+11. Website activity uses the fixed `24 HOUR` throttle and is wired only from `GET /api/me`.
+12. `last_seen_at` is not written from `attachDevSession`, `requireAuth`, or all dashboard routes.
+13. The plan now reflects the implemented message and website activity behavior.
+
+Remaining ambiguous direct `memberService.ensureMemberByDiscordId(...)` callers:
+
+- `src/core/DataBaseHandler.ts`
+- `src/core/GuildDashboardService.ts`
+- `src/core/NotificationService.ts`
+- `src/core/ShopObsService.ts`
+- `src/core/UserProfileService.ts`
+
+Decision on ambiguous callers:
+
+- keep the `unknown` fallback for these paths for now
+- do not force source attribution until each caller is reviewed against its actual ownership boundary
+- future source-attribution tasks should be created only where the runtime owner is clear and stable
+
+Recommended follow-up candidates after this checkpoint:
+
+- review the ambiguous direct `memberService.ensureMemberByDiscordId(...)` callers and classify which ones should pass `system`, `seed`, or another explicit source
+- review whether the legacy `DataBaseHandler.isMemberExists(...)` bootstrap path should be reduced or routed more directly through `MemberService`
+- add a focused production validation checklist for lifecycle metadata counts after deployment
+- only consider throttling Discord interaction writes if real database pressure appears in production metrics
 
 ## 10. Validation queries
 
