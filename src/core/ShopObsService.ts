@@ -453,7 +453,7 @@ export class ShopObsService {
       return row;
     }
 
-    await memberService.ensureMemberByDiscordId(normalizedDiscordId);
+    await memberService.ensureMemberByDiscordId(normalizedDiscordId, { createdSource: "unknown" });
 
     const [retryRows] = await pool.query<MemberBalanceRow[]>(
       `SELECT id, balance, ds_member_id, discord_username, discord_global_name

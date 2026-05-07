@@ -108,7 +108,7 @@ export class UserProfileService {
   }
 
   async ensureMember(discordId: string): Promise<void> {
-    await memberService.ensureMemberByDiscordId(discordId);
+    await memberService.ensureMemberByDiscordId(discordId, { createdSource: "unknown" });
   }
 
   async isKnownGuild(guildId: string): Promise<boolean> {

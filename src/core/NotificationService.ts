@@ -360,6 +360,6 @@ export class NotificationService {
   }
 
   private async ensureMember(discordId: string): Promise<void> {
-    await memberService.ensureMemberByDiscordId(discordId);
+    await memberService.ensureMemberByDiscordId(discordId, { createdSource: "unknown" });
   }
 }

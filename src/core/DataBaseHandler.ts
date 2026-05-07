@@ -679,6 +679,7 @@ export class DataBaseHandler {
                         try {
                             const discordId = member;
                             const existingMemberId = await memberService.getMemberIdByDiscordId(discordId);
+                            // Source attribution intentionally remains implicit because this legacy wrapper multiplexes Discord, system/bootstrap, command, and service callers.
                             member = await memberService.ensureMemberByDiscordId(discordId);
                             if (existingMemberId === null){
                                 const generalSettings = await settingsService.ensureGeneralSettings();

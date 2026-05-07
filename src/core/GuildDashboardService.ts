@@ -167,7 +167,7 @@ export class GuildDashboardService {
   }
 
   private async ensureMember(discordId: string): Promise<{ id: number; homeGuildId: string | null }> {
-    await memberService.ensureMemberByDiscordId(discordId);
+    await memberService.ensureMemberByDiscordId(discordId, { createdSource: "unknown" });
 
     const [rows] = await pool.query<MemberRow[]>(
       `SELECT id, home_guild_id
