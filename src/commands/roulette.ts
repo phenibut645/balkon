@@ -5,6 +5,7 @@ import { commandSessionHandler } from "../core/commands/CommandSessionHandler.js
 import { Command } from "../core/commands/Command.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
 import { dataBaseHandler, UpdateType } from "../core/DataBaseHandler.js";
+import { memberService } from "../core/MemberService.js";
 
 export interface RouletteSession {
     bullet: number,
@@ -49,10 +50,17 @@ export default class RouletteCommand extends Command {
         this.buttons.set(this.declineCommand.toString(), this.decline)
         this.buttons.set(this.shootCommand.toString(), this.shoot)
     }
+
+    private async ensureMemberBestEffort(discordUserId: string): Promise<void> {
+        try {
+            await memberService.ensureMemberByDiscordId(discordUserId, { createdSource: "unknown" });
+        } catch {
+        }
+    }
     
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        await dataBaseHandler.isMemberExists(interaction.user.id, true);
+        await this.ensureMemberBestEffort(interaction.user.id);
         const bet = interaction.options.getNumber("bet");
 
         if (bet === null || bet <= 0) {
