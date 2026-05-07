@@ -227,6 +227,73 @@ Why throttling matters:
 - keeps `last_seen_at` semantically meaningful as a coarse activity signal
 - prevents passive polling or background refresh from looking like user engagement
 
+### KAN-24 activity decision
+
+This subsection records the explicit policy decision for remaining `last_seen_at` activity tracking after the first runtime implementations.
+
+Current implementation status:
+
+- OAuth login updates `last_seen_at` on every successful session creation.
+- Discord interaction updates `last_seen_at` on every successful interaction member sync.
+- Discord message activity is not throttled yet because message-based tracking is not implemented.
+- Website authenticated API activity is not throttled yet because website activity tracking is not implemented.
+
+Decisions:
+
+1. Discord message activity should update `members.last_seen_at`, but not on every message.
+2. Discord message activity should use a `15 MINUTE` throttle interval.
+3. Website authenticated API activity should update `members.last_seen_at`, but not on every authenticated request.
+4. Website authenticated API activity should use a `24 HOUR` throttle interval.
+5. Throttling should be implemented with a simple SQL condition on `members.last_seen_at` for now.
+6. No new throttle or activity tracking table should be added in this phase.
+
+Approved throttle shape:
+
+- Discord message activity write condition:
+
+```sql
+UPDATE members
+SET last_seen_at = CURRENT_TIMESTAMP
+WHERE ds_member_id = ?
+  AND (
+    last_seen_at IS NULL
+    OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL 15 MINUTE
+  );
+```
+
+- Website authenticated API write condition:
+
+```sql
+UPDATE members
+SET last_seen_at = CURRENT_TIMESTAMP
+WHERE ds_member_id = ?
+  AND (
+    last_seen_at IS NULL
+    OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL 24 HOUR
+  );
+```
+
+Why this policy is approved:
+
+- message traffic is too frequent to justify an unconditional write on every Discord message
+- website authenticated traffic can include repeated dashboard polling or page refreshes that should not look like continuous engagement
+- a simple row-local SQL condition is enough for current scale and avoids introducing a new coordination table before there is a proven need
+- `last_seen_at` should remain lightweight activity metadata, not a high-volume event log
+
+Guardrails:
+
+- do not add a new activity log table or throttle table for this policy step
+- do not treat background sync, passive refresh, or non-user-driven fetches as activity writes
+- do not couple throttling to `updated_at`; `last_seen_at` remains a separate activity signal
+- if future product requirements need per-event analytics, solve that with a separate audit or analytics design rather than overloading `last_seen_at`
+
+Planned follow-up tasks:
+
+- implement throttled Discord message `last_seen_at` updates using the `15 MINUTE` SQL condition
+- implement throttled website authenticated API `last_seen_at` updates using the `24 HOUR` SQL condition
+- identify the exact website request boundary that counts as authenticated user activity before wiring the website update path
+- re-evaluate whether interaction writes need throttling only if database pressure appears in production metrics
+
 ## 10. Validation queries
 
 The migration implementation task should run validation queries before and after backfill.
