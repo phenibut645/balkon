@@ -2,6 +2,7 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
 import { DataBaseHandler, DBResponse, DBResponseSuccess } from "./DataBaseHandler.js";
+import { memberService } from "./MemberService.js";
 import { NotificationService } from "./NotificationService.js";
 import { CraftRecipeIngredientsDB, CraftRecipesDB, ItemGeneralStoreDB, ItemPublicMarketDB, ItemRaritiesDB, ItemsDB, ItemTypesDB, MemberItemsDB, MembersDB } from "../types/database.types.js";
 
@@ -274,12 +275,14 @@ export class ItemService {
     }
 
     async ensureMemberByDiscordId(discordId: string): Promise<DBResponseSuccess<MembersDB>> {
-        const existsResponse = await DataBaseHandler.getInstance().isMemberExists(discordId, true);
-        if (DataBaseHandler.isFail(existsResponse) || !existsResponse.data.memberId) {
+        let memberId: number;
+        try {
+            memberId = await memberService.ensureMemberByDiscordId(discordId, { createdSource: "unknown" });
+        } catch {
             throw new Error("Unable to create or load member.");
         }
 
-        const memberResponse = await DataBaseHandler.getInstance().getFromTable<MembersDB>("members", { id: existsResponse.data.memberId });
+        const memberResponse = await DataBaseHandler.getInstance().getFromTable<MembersDB>("members", { id: memberId });
         if (DataBaseHandler.isFail(memberResponse) || !memberResponse.data.length) {
             throw new Error("Member record not found after sync.");
         }
