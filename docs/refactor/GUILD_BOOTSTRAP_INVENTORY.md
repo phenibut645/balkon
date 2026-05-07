@@ -12,8 +12,9 @@ Implementation status note:
 - KAN-36 extracted `ensureLogType(name)` into `src/core/GuildLogSettingsService.ts`.
 - KAN-37 extracted `ensureDefaultLogChannels(guildId, channelId)` into `src/core/GuildLogSettingsService.ts`.
 - KAN-40 extracted `ensureGuildChannels(guildId, discordChannelIds)` into `src/core/GuildChannelCacheService.ts`.
-- `DataBaseHandler.addGuildToDB(...)`, private `ensureGuildRecord(...)`, private `ensureLogType(...)`, private `ensureDefaultLogChannels(...)`, and private `ensureGuildChannels(...)` remain compatibility wrappers.
-- `ensureGuildBootstrap(...)` still reaches channel sync through `DataBaseHandler`, and full guild bootstrap extraction is still not complete.
+- KAN-43 extracted `ensureGuildRoles(guildId, discordRoleIds)` into `src/core/GuildRoleCacheService.ts`.
+- `DataBaseHandler.addGuildToDB(...)`, private `ensureGuildRecord(...)`, private `ensureLogType(...)`, private `ensureDefaultLogChannels(...)`, private `ensureGuildChannels(...)`, and private `ensureGuildRoles(...)` remain compatibility wrappers.
+- `ensureGuildBootstrap(...)` still reaches channel sync and role sync through `DataBaseHandler`, and full guild bootstrap extraction is still not complete.
 
 ## Purpose / Scope
 
@@ -80,7 +81,7 @@ No HTTP route entry point was found that directly calls `ensureGuildBootstrap(..
 | `ensureGuildRecord(guild)` | Resolve-or-create guild row | `DataBaseHandler` now delegates to `GuildRecordService`, which preserves the existing behavior: look up `guilds` by `ds_guild_id`, create one with `addGuildToDB(...)` if missing, then re-read the created row. | `DataBaseHandler` compatibility wrapper; `GuildRecordService`; `addGuildToDB(...)`; direct `guilds` read | inserts `guilds` | medium | Base record creation/lookup was extracted by KAN-33, but `ensureGuildBootstrap(...)` still consumes it through the wrapper and broader bootstrap extraction is still future work. |
 | `ensureGuildMemberStatus(discordUserId, guildId, memberStatusId)` | Ensure owner/member relationship row and desired status | Resolves member through `isMemberExists(discordUserId, true)`, loads `guild_members`, updates `member_status_id` when mismatched, or inserts a new `guild_members` row. | `isMemberExists(...)`, `getFromTable(...)`, `updateTable(...)`, `addRecords(...)` | inserts/updates `guild_members`; may indirectly create `members` | high | This is the main ownership overlap with member lifecycle. Do not extract blindly before separating member ensure from guild-member ensure. |
 | `ensureGuildChannels(guildId, discordChannelIds)` | Sync guild channel cache to Discord snapshot | `DataBaseHandler` now delegates to `GuildChannelCacheService`, which preserves the existing behavior: read current `guild_channels`, compute insert and stale sets, delete stale `guild_channels`, prune stale `logs_channels`, then insert missing channel ids. | `DataBaseHandler` compatibility wrapper; `GuildChannelCacheService`; direct `guild_channels` read/insert/delete; direct `logs_channels` prune | inserts `guild_channels`; deletes `guild_channels` and `logs_channels` | high | Wrapper extraction was completed by KAN-40, but the behavior remains destructive, order-dependent, non-transactional, and not semantically hardened. It can also indirectly affect downstream rows such as `twitch_notification_channels` through existing guild channel FK cascades. |
-| `ensureGuildRoles(guildId, discordRoleIds)` | Sync guild role cache to Discord snapshot | Loads current `guild_roles`, inserts missing role ids, deletes stale `guild_roles`. | `getFromTable(...)`, `addRecords(...)`, raw `pool.query(...)` delete | inserts/deletes `guild_roles` | high | Stale role cleanup is destructive. Mark as high-risk. |
+| `ensureGuildRoles(guildId, discordRoleIds)` | Sync guild role cache to Discord snapshot | `DataBaseHandler` now delegates to `GuildRoleCacheService`, which preserves the existing behavior: read current `guild_roles`, compute insert and stale sets, delete stale `guild_roles`, then insert missing role ids. | `DataBaseHandler` compatibility wrapper; `GuildRoleCacheService`; direct `guild_roles` read/insert/delete | inserts/deletes `guild_roles` | high | Wrapper extraction was completed by KAN-43, but the behavior remains destructive, order-dependent, non-transactional, and not semantically hardened. It can cascade into role-related tables such as permissions, moderation bindings, item-role bindings, and role-status mappings through existing FKs. |
 | `resolveBootstrapChannelId(guild)` | Pick best text channel for bootstrap/log defaults | Prefers `systemChannelId` when sendable, otherwise first sendable text channel, ignoring threads. | guild channel cache in Discord.js only | none | medium | Pure runtime helper; safe to leave coupled to bootstrap orchestrator until write surfaces are isolated. |
 | `ensureDefaultLogChannels(guildId, channelId)` | Ensure default log channel rows exist and follow chosen bootstrap channel | `DataBaseHandler` now delegates to `GuildLogSettingsService`, which preserves the existing behavior: no-op on null channel, ensure `ban_logs` and `mute_logs`, insert missing `logs_channels` rows, and update only `ds_channel_id` when the first existing row differs. | `DataBaseHandler` compatibility wrapper; `GuildLogSettingsService`; `ensureLogType(...)`; direct `logs_channels` read/insert/update | inserts/updates `log_types`, `logs_channels` | high | Wrapper extraction was completed by KAN-37, but orchestration still consumes it through `DataBaseHandler` and stale cleanup warnings elsewhere remain unchanged. |
 | `ensureLogType(name)` | Resolve-or-create log type lookup row | `DataBaseHandler` now delegates to `GuildLogSettingsService`, which preserves the existing behavior: read `log_types` by name, return the first existing row id, or insert one if missing. | `DataBaseHandler` compatibility wrapper; `GuildLogSettingsService`; direct `log_types` read/insert | inserts `log_types` | medium | Wrapper extraction was completed by KAN-36, but broader guild log settings ownership is still only partially implemented. |
@@ -148,7 +149,7 @@ These are inventory candidates only. They are not a rewrite plan.
 | `GuildRecordService` or guild repository | Resolve/create base guild rows | `ensureGuildRecord(...)`, `addGuildToDB(...)` | Partially implemented by KAN-33 for base record creation/lookup only. `DataBaseHandler` wrappers and all broader bootstrap responsibilities remain in place. |
 | `GuildMemberService` | Ensure guild-member relationship and member status | `ensureGuildMemberStatus(...)` | High-risk because it depends on legacy `isMemberExists(...)`. |
 | `GuildChannelCacheService` or guild channel repository | Read/insert/delete channel cache rows and prune stale log channel bindings | `ensureGuildChannels(...)` | Partially implemented by KAN-40 for guild channel cache read/insert sync, stale `guild_channels` delete, and stale `logs_channels` prune only. `DataBaseHandler` wrappers and broader bootstrap orchestration remain in place. |
-| guild role repository | Read/insert/delete role cache rows | role read/insert/delete parts of `ensureGuildRoles(...)` | Same stale cleanup warning as channels. |
+| `GuildRoleCacheService` or guild role repository | Read/insert/delete role cache rows | `ensureGuildRoles(...)` | Partially implemented by KAN-43 for guild role cache read/insert sync and stale `guild_roles` delete only. `DataBaseHandler` wrappers and broader bootstrap orchestration remain in place. |
 | `GuildLogSettingsService` | Resolve log types and default log channel bindings | `ensureDefaultLogChannels(...)`, `ensureLogType(...)` | Partially implemented by KAN-36 and KAN-37 for log type lookup/creation and default log channel configuration only. `DataBaseHandler` wrappers and broader bootstrap orchestration remain in place. |
 
 ## Do-Not-Touch List
@@ -180,9 +181,10 @@ This is intentionally small-step and inventory-driven.
    Current state: `GuildChannelCacheService` now owns guild channel cache read/insert sync, stale `guild_channels` delete, and stale `logs_channels` prune, while `DataBaseHandler` keeps the compatibility wrapper and `ensureGuildBootstrap(...)` orchestration remains unchanged.
    Caveat: stale channel cleanup remains behavior-preserved only. No transaction, dedupe, upsert, schema change, constraint/index change, or empty-snapshot guard was added.
 
-4. Separate role cache sync from orchestration, but preserve exact stale-delete behavior.
-   Candidate scope: only after the channel path is understood and kept stable.
-   Risk note: high-risk because stale role cleanup must remain exact.
+4. Completed by KAN-43: inventory-preserving guild role cache wrapper extraction.
+   Completed scope: `ensureGuildRoles(...)` only.
+   Current state: `GuildRoleCacheService` now owns guild role cache read/insert sync and stale `guild_roles` delete, while `DataBaseHandler` keeps the compatibility wrapper and `ensureGuildBootstrap(...)` orchestration remains unchanged.
+   Caveat: stale role cleanup remains behavior-preserved only. No transaction, dedupe, upsert, schema change, constraint/index change, empty-snapshot guard, or FK cascade behavior change was added.
 
 5. Leave `ensureGuildMemberStatus(...)` and `deleteGuildFromDB(...)` for later.
    Why: they are still the strongest overlaps with member ownership and destructive delete risk.
@@ -202,8 +204,8 @@ This sequence is not a mandate. It is the smallest extraction order suggested by
 
 ## Explicit Non-Changes
 
-- No runtime code was changed by this KAN-41 documentation update.
-- No schema or migration file was changed by this KAN-41 documentation update.
-- KAN-33, KAN-36, KAN-37, and KAN-40 already extracted only the base guild record, guild log settings, and guild channel cache wrappers into `GuildRecordService`, `GuildLogSettingsService`, and `GuildChannelCacheService`; no additional `DataBaseHandler` methods were moved by this documentation update.
+- No runtime code was changed by this KAN-44 documentation update.
+- No schema or migration file was changed by this KAN-44 documentation update.
+- KAN-33, KAN-36, KAN-37, KAN-40, and KAN-43 already extracted only the base guild record, guild log settings, guild channel cache, and guild role cache wrappers into `GuildRecordService`, `GuildLogSettingsService`, `GuildChannelCacheService`, and `GuildRoleCacheService`; no additional `DataBaseHandler` methods were moved by this documentation update.
 - No additional refactor was performed by this documentation update.
 - No build is required for this docs-only task.
