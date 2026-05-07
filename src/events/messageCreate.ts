@@ -15,6 +15,8 @@ export const messageCreateController = async (message: Message) => {
             avatarUrl: user.displayAvatarURL({ size: 128 }) ?? null,
             createdSource: "discord_message",
         });
+
+        await memberService.markMemberSeenByDiscordMessage(user.id);
     } catch (error) {
         console.error("Failed to sync message Discord profile metadata", error);
     }

@@ -240,6 +240,21 @@ export class MemberService {
       [normalizedDiscordId],
     );
   }
+
+  async markMemberSeenByDiscordMessage(discordId: string): Promise<void> {
+    const normalizedDiscordId = normalizeDiscordId(discordId);
+
+    await pool.query(
+      `UPDATE members
+       SET last_seen_at = CURRENT_TIMESTAMP
+       WHERE ds_member_id = ?
+         AND (
+           last_seen_at IS NULL
+           OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL 15 MINUTE
+         )`,
+      [normalizedDiscordId],
+    );
+  }
 }
 
 export const memberService = MemberService.getInstance();
