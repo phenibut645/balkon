@@ -3,6 +3,7 @@ import pool from "../db.js";
 import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
+import { guildChannelCacheService } from "./GuildChannelCacheService.js";
 import { guildLogSettingsService } from "./GuildLogSettingsService.js";
 import { settingsService } from "./SettingsService.js";
 import { guildRecordService } from "./GuildRecordService.js";
@@ -365,60 +366,7 @@ export class DataBaseHandler {
     }
 
     private async ensureGuildChannels(guildId: number, discordChannelIds: string[]): Promise<DBResponse<{ synced: number; removed: number }>> {
-        try {
-            const existingResponse = await this.getFromTable<GuildChannels>("guild_channels", { guild_id: guildId });
-            if (DataBaseHandler.isFail(existingResponse)) {
-                return existingResponse;
-            }
-
-            const existingIds = new Set(existingResponse.data.map(channel => channel.ds_channel_id));
-            const discordIdSet = new Set(discordChannelIds);
-            const channelsToInsert = discordChannelIds
-                .filter(channelId => !existingIds.has(channelId))
-                .map(channelId => ({
-                    id: 0,
-                    guild_id: guildId,
-                    ds_channel_id: channelId,
-                }));
-            const staleChannelIds = existingResponse.data
-                .filter(channel => !discordIdSet.has(channel.ds_channel_id))
-                .map(channel => channel.id);
-
-            if (staleChannelIds.length) {
-                const placeholders = staleChannelIds.map(() => "?").join(", ");
-                await pool.query(`DELETE FROM guild_channels WHERE id IN (${placeholders})`, staleChannelIds);
-            }
-
-            if (staleChannelIds.length || discordChannelIds.length) {
-                const activeChannelIds = discordChannelIds;
-                if (activeChannelIds.length) {
-                    const placeholders = activeChannelIds.map(() => "?").join(", ");
-                    await pool.query(
-                        `DELETE lc FROM logs_channels lc
-                         INNER JOIN guilds g ON g.id = lc.guild_id
-                         WHERE lc.guild_id = ? AND lc.ds_channel_id NOT IN (${placeholders})`,
-                        [guildId, ...activeChannelIds]
-                    );
-                } else {
-                    await pool.query(`DELETE FROM logs_channels WHERE guild_id = ?`, [guildId]);
-                }
-            }
-
-            if (channelsToInsert.length) {
-                const insertResponse = await this.addRecords<GuildChannels>(channelsToInsert, "guild_channels");
-                if (DataBaseHandler.isFail(insertResponse)) {
-                    return insertResponse;
-                }
-            }
-
-            return {
-                success: true,
-                data: { synced: channelsToInsert.length, removed: staleChannelIds.length },
-            };
-        }
-        catch (err: unknown) {
-            return DataBaseHandler.errorHandling(err);
-        }
+        return guildChannelCacheService.ensureGuildChannels(guildId, discordChannelIds);
     }
 
     private async ensureGuildRoles(guildId: number, discordRoleIds: string[]): Promise<DBResponse<{ synced: number; removed: number }>> {
