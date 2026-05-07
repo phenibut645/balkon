@@ -1,6 +1,6 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, LogsChannelsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
+import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
 import { guildLogSettingsService } from "./GuildLogSettingsService.js";
@@ -502,63 +502,7 @@ export class DataBaseHandler {
     }
 
     private async ensureDefaultLogChannels(guildId: number, channelId: string | null): Promise<DBResponse<{ configured: number }>> {
-        try {
-            if (!channelId) {
-                return {
-                    success: true,
-                    data: { configured: 0 },
-                };
-            }
-
-            const logTypeIds = await Promise.all([
-                this.ensureLogType("ban_logs"),
-                this.ensureLogType("mute_logs"),
-            ]);
-            if (logTypeIds.some(result => DataBaseHandler.isFail(result))) {
-                return logTypeIds.find(result => DataBaseHandler.isFail(result)) as DBResponse<{ configured: number }>;
-            }
-
-            let configured = 0;
-            for (const logTypeResult of logTypeIds) {
-                const logTypeId = (logTypeResult as DBResponse<InsertIdResponse | number> & { data: number }).data;
-                const existingResponse = await this.getFromTable<LogsChannelsDB>("logs_channels", {
-                    guild_id: guildId,
-                    log_type_id: logTypeId,
-                });
-                if (DataBaseHandler.isFail(existingResponse)) {
-                    return existingResponse;
-                }
-
-                if (!existingResponse.data.length) {
-                    const insertResponse = await this.addRecords<LogsChannelsDB>([{
-                        id: 0,
-                        guild_id: guildId,
-                        log_type_id: logTypeId,
-                        ds_channel_id: channelId,
-                    }], "logs_channels");
-                    if (DataBaseHandler.isFail(insertResponse)) {
-                        return insertResponse;
-                    }
-                    configured += 1;
-                    continue;
-                }
-
-                if (existingResponse.data[0].ds_channel_id !== channelId) {
-                    const updateResponse = await this.updateTable("logs_channels", "ds_channel_id", channelId, { id: existingResponse.data[0].id });
-                    if (DataBaseHandler.isFail(updateResponse)) {
-                        return updateResponse;
-                    }
-                }
-            }
-
-            return {
-                success: true,
-                data: { configured },
-            };
-        }
-        catch (err: unknown) {
-            return DataBaseHandler.errorHandling(err);
-        }
+        return guildLogSettingsService.ensureDefaultLogChannels(guildId, channelId);
     }
 
     private async ensureLogType(name: string): Promise<DBResponse<number>> {
