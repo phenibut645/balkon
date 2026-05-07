@@ -6,6 +6,12 @@ This is a focused documentation inventory for guild bootstrap responsibilities t
 
 This document is inventory-only. It does not change runtime code, schema, migrations, or ownership.
 
+Implementation status note:
+
+- KAN-33 extracted base guild record creation/lookup into `src/core/GuildRecordService.ts`.
+- `DataBaseHandler.addGuildToDB(...)` and private `ensureGuildRecord(...)` remain compatibility wrappers.
+- External callers still use `DataBaseHandler` wrappers; full guild bootstrap extraction is not complete.
+
 ## Purpose / Scope
 
 Read first:
@@ -66,9 +72,9 @@ No HTTP route entry point was found that directly calls `ensureGuildBootstrap(..
 
 | Method | Responsibility | Current behavior | Depends on | Writes/deletes | Risk | First-extraction note |
 | --- | --- | --- | --- | --- | --- | --- |
-| `addGuildToDB(guild)` | Minimal guild row creation | Resolves default earning multiplier from general settings and inserts one `guilds` row for a Discord guild id. | `settingsService.ensureGeneralSettings()`; `addRecords(...)` | inserts `guilds` | medium | Smallest guild-specific write in this surface. Candidate to isolate before broader bootstrap logic. |
+| `addGuildToDB(guild)` | Minimal guild row creation | `DataBaseHandler` now delegates to `GuildRecordService`, which preserves the existing behavior: resolve default earning multiplier from general settings and insert one `guilds` row for a Discord guild id. | `DataBaseHandler` compatibility wrapper; `GuildRecordService`; `settingsService.ensureGeneralSettings()`; direct `guilds` insert | inserts `guilds` | medium | Base record creation/lookup was extracted by KAN-33, but the compatibility wrapper remains and broader bootstrap logic was not extracted. |
 | `ensureGuildBootstrap(guild)` | Orchestrate guild bootstrap | Ensures guild row, ensures owner membership status, syncs channels, syncs roles, resolves bootstrap channel, ensures default log channels, returns summary counters. | `ensureGuildRecord(...)`, `ensureGuildMemberStatus(...)`, `ensureGuildChannels(...)`, `ensureGuildRoles(...)`, `ensureDefaultLogChannels(...)` | inserts/updates/deletes across several guild tables | high | This is the orchestration seam, but it should not be extracted first because its helpers still mix destructive cleanup and member overlap. |
-| `ensureGuildRecord(guild)` | Resolve-or-create guild row | Looks up `guilds` by `ds_guild_id`, creates one with `addGuildToDB(...)` if missing, then re-reads created row. | `getFromTable(...)`, `addGuildToDB(...)` | inserts `guilds` | medium | Narrower than full bootstrap; good factual boundary for a future guild record owner. |
+| `ensureGuildRecord(guild)` | Resolve-or-create guild row | `DataBaseHandler` now delegates to `GuildRecordService`, which preserves the existing behavior: look up `guilds` by `ds_guild_id`, create one with `addGuildToDB(...)` if missing, then re-read the created row. | `DataBaseHandler` compatibility wrapper; `GuildRecordService`; `addGuildToDB(...)`; direct `guilds` read | inserts `guilds` | medium | Base record creation/lookup was extracted by KAN-33, but `ensureGuildBootstrap(...)` still consumes it through the wrapper and broader bootstrap extraction is still future work. |
 | `ensureGuildMemberStatus(discordUserId, guildId, memberStatusId)` | Ensure owner/member relationship row and desired status | Resolves member through `isMemberExists(discordUserId, true)`, loads `guild_members`, updates `member_status_id` when mismatched, or inserts a new `guild_members` row. | `isMemberExists(...)`, `getFromTable(...)`, `updateTable(...)`, `addRecords(...)` | inserts/updates `guild_members`; may indirectly create `members` | high | This is the main ownership overlap with member lifecycle. Do not extract blindly before separating member ensure from guild-member ensure. |
 | `ensureGuildChannels(guildId, discordChannelIds)` | Sync guild channel cache to Discord snapshot | Loads current `guild_channels`, inserts missing channel ids, deletes stale `guild_channels`, then deletes stale `logs_channels` rows for channels no longer present. | `getFromTable(...)`, `addRecords(...)`, raw `pool.query(...)` deletes | inserts `guild_channels`; deletes `guild_channels` and `logs_channels` | high | Stale cleanup is destructive and cross-table. Mark as high-risk. |
 | `ensureGuildRoles(guildId, discordRoleIds)` | Sync guild role cache to Discord snapshot | Loads current `guild_roles`, inserts missing role ids, deletes stale `guild_roles`. | `getFromTable(...)`, `addRecords(...)`, raw `pool.query(...)` delete | inserts/deletes `guild_roles` | high | Stale role cleanup is destructive. Mark as high-risk. |
@@ -136,7 +142,7 @@ These are inventory candidates only. They are not a rewrite plan.
 | Candidate boundary | Likely responsibilities | Current methods that map here | Risk notes |
 | --- | --- | --- | --- |
 | `GuildBootstrapService` | Orchestrate bootstrap using narrower dependencies and return bootstrap summary | `ensureGuildBootstrap(...)`, `resolveBootstrapChannelId(...)` | Do not start here first; orchestration still depends on destructive cleanup and member overlap. |
-| `GuildRecordService` or guild repository | Resolve/create base guild rows | `ensureGuildRecord(...)`, `addGuildToDB(...)` | Smallest factual guild boundary found in this inventory. |
+| `GuildRecordService` or guild repository | Resolve/create base guild rows | `ensureGuildRecord(...)`, `addGuildToDB(...)` | Partially implemented by KAN-33 for base record creation/lookup only. `DataBaseHandler` wrappers and all broader bootstrap responsibilities remain in place. |
 | `GuildMemberService` | Ensure guild-member relationship and member status | `ensureGuildMemberStatus(...)` | High-risk because it depends on legacy `isMemberExists(...)`. |
 | guild channel repository | Read/insert/delete channel cache rows | channel read/insert/delete parts of `ensureGuildChannels(...)` | Must explicitly keep stale cleanup semantics stable if ever extracted. |
 | guild role repository | Read/insert/delete role cache rows | role read/insert/delete parts of `ensureGuildRoles(...)` | Same stale cleanup warning as channels. |
@@ -158,22 +164,24 @@ These are inventory candidates only. They are not a rewrite plan.
 
 This is intentionally small-step and inventory-driven.
 
-1. Isolate the minimal guild record boundary.
-   Candidate scope: `addGuildToDB(...)` and `ensureGuildRecord(...)` only.
-   Why first: it is the narrowest guild-specific write surface and does not include stale cleanup or member overlap.
+1. Completed by KAN-33: isolate the minimal guild record boundary.
+   Completed scope: `addGuildToDB(...)` and `ensureGuildRecord(...)` only.
+   Current state: base guild record creation/lookup now lives in `GuildRecordService`, while `DataBaseHandler` keeps compatibility wrappers and all broader bootstrap behavior remains unchanged.
 
 2. Inventory-preserving wrapper around guild log lookup/config.
    Candidate scope: `ensureLogType(...)` and maybe read/write pieces of `ensureDefaultLogChannels(...)` without changing behavior.
-   Why second: it is a narrower config/settings surface than full bootstrap orchestration.
+   Why future: it is a narrower config/settings surface than full bootstrap orchestration, but it is still future work and should remain separate from stale cleanup or destructive paths.
 
 3. Separate channel cache sync from orchestration, but preserve exact stale-delete behavior.
    Candidate scope: only after a dedicated test/behavior snapshot exists for `ensureGuildChannels(...)`.
+   Risk note: high-risk because stale channel cleanup must remain exact.
 
 4. Separate role cache sync from orchestration, but preserve exact stale-delete behavior.
    Candidate scope: only after the channel path is understood and kept stable.
+   Risk note: high-risk because stale role cleanup must remain exact.
 
 5. Leave `ensureGuildMemberStatus(...)` and `deleteGuildFromDB(...)` for later.
-   Why: they are the strongest overlaps with member ownership and destructive delete risk.
+   Why: they are still the strongest overlaps with member ownership and destructive delete risk.
 
 This sequence is not a mandate. It is the smallest extraction order suggested by the current inventory.
 
