@@ -198,8 +198,8 @@ This sequence is not a mandate. It is the smallest extraction order suggested by
 
 ## Explicit Non-Changes
 
-- No runtime code was changed.
-- No schema or migration file was changed.
-- No methods were moved out of `DataBaseHandler`.
-- No refactor was performed.
+- No runtime code was changed by this KAN-34 documentation update.
+- No schema or migration file was changed by this KAN-34 documentation update.
+- KAN-33 already extracted only the base guild record creation/lookup wrapper into `GuildRecordService`; no additional `DataBaseHandler` methods were moved by this documentation update.
+- No additional refactor was performed by this documentation update.
 - No build is required for this docs-only task.
