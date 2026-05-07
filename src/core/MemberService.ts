@@ -229,6 +229,17 @@ export class MemberService {
 
     return memberId;
   }
+
+  async markMemberSeenByDiscordId(discordId: string): Promise<void> {
+    const normalizedDiscordId = normalizeDiscordId(discordId);
+
+    await pool.query(
+      `UPDATE members
+       SET last_seen_at = CURRENT_TIMESTAMP
+       WHERE ds_member_id = ?`,
+      [normalizedDiscordId],
+    );
+  }
 }
 
 export const memberService = MemberService.getInstance();

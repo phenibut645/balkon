@@ -150,6 +150,8 @@ export class ApiSessionService {
       createdSource: "oauth",
     });
 
+    await memberService.markMemberSeenByDiscordId(input.discordUser.id);
+
     await pool.query(
       `INSERT INTO api_sessions (
         session_token_hash,
