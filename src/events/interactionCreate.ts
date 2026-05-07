@@ -18,6 +18,8 @@ export const interactionCreateController = async (interaction: Interaction) => {
       avatarUrl: interaction.user.displayAvatarURL({ size: 128 }) ?? null,
       createdSource: "discord_interaction",
     });
+
+    await memberService.markMemberSeenByDiscordId(interaction.user.id);
   } catch (error) {
     console.error("Failed to sync interaction Discord profile metadata", error);
   }
