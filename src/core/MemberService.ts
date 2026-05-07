@@ -5,6 +5,8 @@ import { DiscordMetadataService } from "./DiscordMetadataService.js";
 
 const DEFAULT_MEMBER_LOCALE = "en";
 const DEFAULT_LDM_BALANCE = 0;
+const DEFAULT_MEMBER_CREATED_SOURCE = "unknown";
+const DEFAULT_MEMBER_PROFILE_STATUS = "minimal";
 
 type MemberIdRow = RowDataPacket & {
   id: number | string;
@@ -21,9 +23,18 @@ type MemberProfileCacheRow = RowDataPacket & {
   locale: string | null;
 };
 
+export type MemberCreatedSource =
+  | "oauth"
+  | "discord_interaction"
+  | "discord_message"
+  | "system"
+  | "seed"
+  | "unknown";
+
 export type EnsureMemberByDiscordIdOptions = {
   startBalance?: number;
   locale?: string;
+  createdSource?: MemberCreatedSource;
 };
 
 export type EnsureMemberFromDiscordProfileInput = {
@@ -62,6 +73,12 @@ function normalizeOptionalLocale(locale: string | null | undefined): string | un
 
   const normalized = locale.trim();
   return normalized.length ? normalized : undefined;
+}
+
+function normalizeMemberCreatedSource(createdSource: MemberCreatedSource | undefined): MemberCreatedSource {
+  // Existing callers do not pass a creation source yet, so newly inserted rows
+  // must fall back to an explicit runtime value instead of legacy.
+  return createdSource ?? DEFAULT_MEMBER_CREATED_SOURCE;
 }
 
 function isDuplicateEntryError(error: unknown): error is { code: string } {
@@ -139,15 +156,32 @@ export class MemberService {
     }
 
     const normalizedLocale = normalizeOptionalLocale(options?.locale) ?? DEFAULT_MEMBER_LOCALE;
+    const createdSource = normalizeMemberCreatedSource(options?.createdSource);
     const startBalance = Number.isFinite(options?.startBalance)
       ? Number(options?.startBalance)
       : Number((await settingsService.ensureGeneralSettings()).start_balance ?? 0);
 
     try {
       const [result] = await pool.query<ResultSetHeader>(
-        `INSERT INTO members (ds_member_id, balance, ldm_balance, locale)
-         VALUES (?, ?, ?, ?)`,
-        [normalizedDiscordId, startBalance, DEFAULT_LDM_BALANCE, normalizedLocale],
+        `INSERT INTO members (
+           ds_member_id,
+           created_at,
+           updated_at,
+           created_source,
+           discord_profile_status,
+           balance,
+           ldm_balance,
+           locale
+         )
+         VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?)`,
+        [
+          normalizedDiscordId,
+          createdSource,
+          DEFAULT_MEMBER_PROFILE_STATUS,
+          startBalance,
+          DEFAULT_LDM_BALANCE,
+          normalizedLocale,
+        ],
       );
 
       if (result.insertId) {
