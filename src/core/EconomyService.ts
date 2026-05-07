@@ -48,6 +48,12 @@ export type AdminAdjustMemberBalanceResult = {
   reason: string;
 };
 
+export type RoulettePayoutResult = {
+  success: boolean;
+  modified?: number;
+  error?: unknown;
+};
+
 interface TotalsRow extends RowDataPacket {
   total_odm: number | string | null;
   total_ldm: number | string | null;
@@ -221,6 +227,30 @@ export class EconomyService {
       current,
       change,
     };
+  }
+
+  async creditRoulettePayoutByDiscordId(
+    discordUserId: string,
+    payoutAmount: number,
+  ): Promise<RoulettePayoutResult> {
+    try {
+      const [result] = await pool.query<ResultSetHeader>(
+        `UPDATE members
+         SET balance = balance + ?
+         WHERE ds_member_id = ?`,
+        [payoutAmount, discordUserId],
+      );
+
+      return {
+        success: true,
+        modified: result.affectedRows,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error,
+      };
+    }
   }
 
   async adjustMemberBalanceByAdmin(input: AdminAdjustMemberBalanceInput): Promise<AdminAdjustMemberBalanceResult> {

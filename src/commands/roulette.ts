@@ -4,7 +4,7 @@ import { CommandAccessLevels } from "../types/database.types.js";
 import { commandSessionHandler } from "../core/commands/CommandSessionHandler.js";
 import { Command } from "../core/commands/Command.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
-import { dataBaseHandler, UpdateType } from "../core/DataBaseHandler.js";
+import { EconomyService } from "../core/EconomyService.js";
 import { memberService } from "../core/MemberService.js";
 
 export interface RouletteSession {
@@ -140,12 +140,9 @@ export default class RouletteCommand extends Command {
                 }
                 else if(session.bullet === MAX_BULLETS){
                     commandSessionHandler.deleteSession(interaction.user.id, this.commandName);
-                    await dataBaseHandler.updateTable(
-                        "members",
-                        "balance",
-                        session.bet * WIN_MULTIPLY,
-                        { ds_member_id: interaction.user.id },
-                        UpdateType.Add
+                    await EconomyService.getInstance().creditRoulettePayoutByDiscordId(
+                        interaction.user.id,
+                        session.bet * WIN_MULTIPLY
                     );
                     await interaction.update({content: `Поздравляю, ты выжил после всех ${MAX_BULLETS} пуль! Ты заработал ${session.bet * WIN_MULTIPLY}`, components: []})
                 }
