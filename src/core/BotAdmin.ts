@@ -4,6 +4,7 @@ import pool from "../db.js";
 import { DEVELOPER_DISCORD_ID, botAdminIds } from "../config.js";
 import { BotSettingsDB, MemberStatuses } from "../types/database.types.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
+import { memberService } from "./MemberService.js";
 
 const BOT_CONTRIBUTORS_SETTING_KEY = "bot_contributor_ids";
 const GUILD_BOOTSTRAP_STATUS_PREFIX = "guild_bootstrap_status:";
@@ -136,6 +137,14 @@ export async function isBotContributor(userId: string): Promise<boolean> {
     return contributorIds.includes(userId);
 }
 
+async function resolveNullableMemberId(discordUserId: string): Promise<number | null> {
+    try {
+        return await memberService.ensureMemberByDiscordId(discordUserId, { createdSource: "unknown" });
+    } catch {
+        return null;
+    }
+}
+
 export async function updateBotContributor(actorUserId: string, targetUserId: string, enabled: boolean): Promise<{ success: boolean; message?: string }> {
     if (!isBotOwner(actorUserId)) {
         return {
@@ -144,8 +153,7 @@ export async function updateBotContributor(actorUserId: string, targetUserId: st
         };
     }
 
-    const memberResponse = await DataBaseHandler.getInstance().isMemberExists(actorUserId, true);
-    const updatedByMemberId = DataBaseHandler.isSuccess(memberResponse) ? memberResponse.data.memberId ?? null : null;
+    const updatedByMemberId = await resolveNullableMemberId(actorUserId);
     const currentIds = await getStoredBotContributorIds();
     const nextIds = enabled
         ? Array.from(new Set([...currentIds, targetUserId]))
