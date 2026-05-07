@@ -2,9 +2,9 @@
 
 Task: KAN-8
 
-This document is a plan only.
+This document began as the KAN-8 planning document and now also records implemented stabilization status through KAN-28.
 
-Hard boundaries for this task:
+Historical KAN-8 task boundaries:
 
 - no runtime code changes
 - no migrations created or edited
@@ -76,9 +76,9 @@ Required safety rules:
 - do not use runtime failure statuses during initial backfill
 - separate initial backfill from later runtime behavior changes
 
-## 4. Proposed additive columns
+## 4. Additive lifecycle columns
 
-Add the following nullable columns to `members` in a later migration task:
+The following nullable columns were implemented by `sql/migrations/020_add_member_lifecycle_metadata.sql` and are reflected in `sql/tables.sql`:
 
 | Column | Type | Nullability | Initial purpose |
 | --- | --- | --- | --- |
@@ -194,7 +194,7 @@ Backfill guidance:
 
 ## 8. Runtime ownership model
 
-Ownership direction for later runtime tasks:
+Current ownership model:
 
 - `MemberService` owns member lifecycle metadata writes
 - `DiscordMetadataService` may update Discord profile cache and `discord_profile_status` only after `MemberService` has ensured member existence
@@ -206,7 +206,9 @@ Practical ownership rules:
 - member creation flows should enter through `MemberService`
 - `created_source` should be set by the creation path that actually created the row
 - `created_at` should be set by the same owned creation path when the row is inserted
-- `updated_at` should be controlled by `MemberService` for lifecycle metadata writes
+- `MemberService` owns lifecycle creation writes and activity writes
+- `DiscordMetadataService` may set `updated_at` only as part of profile cache hydration and `discord_profile_status` recalculation
+- `last_seen_at` remains separate activity metadata and should not be coupled to `updated_at`
 - `DiscordMetadataService` should remain subordinate to member existence and profile cache ownership rules rather than acting as an independent member creator
 
 ## 9. Website `last_seen_at` throttling policy
@@ -289,12 +291,11 @@ Guardrails:
 
 Planned follow-up tasks:
 
-- review whether Discord interaction writes need throttling only if production metrics show write pressure
 - re-evaluate whether interaction writes need throttling only if database pressure appears in production metrics
 
 ### KAN-26 website authenticated activity boundary
 
-This subsection records the implementation boundary decision for future website `last_seen_at` writes.
+This subsection records the implementation boundary decision for website `last_seen_at` writes.
 
 Current authentication boundary facts:
 
@@ -306,7 +307,7 @@ Decision:
 
 1. The current backend path that proves a website user is authenticated is session resolution in `attachDevSession`, but that hook is too broad for `last_seen_at` writes.
 2. The recommended website activity boundary is the lightweight authenticated bootstrap endpoint `GET /api/me` defined in `src/api/routes/dashboardRoutes.ts`.
-3. Future website `last_seen_at` writes should happen in one explicit route boundary, not in session resolution middleware and not in generic `requireAuth`.
+3. Website `last_seen_at` writes should happen in one explicit route boundary, not in session resolution middleware and not in generic `requireAuth`.
 4. The `24 HOUR` throttle from KAN-24 remains the approved website policy.
 5. Throttling should use the fixed SQL condition on `members.last_seen_at` and should continue to avoid any new table.
 
@@ -326,7 +327,7 @@ Requests that should not count as website activity by default:
 - any future background refresh, polling, prefetch, or silent retry path
 - development-only header auth resolution should not expand the write boundary beyond the chosen explicit endpoint
 
-Approved future website write shape:
+Approved website write shape:
 
 ```sql
 UPDATE members
@@ -338,7 +339,7 @@ WHERE ds_member_id = ?
   );
 ```
 
-Implementation guidance for the future task:
+Implementation guidance:
 
 - call the existing `MemberService` ownership path from the explicit `GET /api/me` route after authentication is already resolved
 - do not place the write in `attachDevSession`
@@ -505,11 +506,11 @@ GROUP BY planned_backfill_status
 ORDER BY member_count DESC, planned_backfill_status ASC;
 ```
 
-## 11. Migration implementation task proposal
+## 11. Migration implementation status
 
-This document does not create the migration. It defines the next implementation task.
+The additive migration already exists as `sql/migrations/020_add_member_lifecycle_metadata.sql` and the baseline schema is aligned in `sql/tables.sql`.
 
-Recommended task sequence:
+Historical implementation sequence:
 
 1. Create one additive migration that adds the five nullable columns to `members`.
 2. Deploy the additive schema first without changing existing runtime behavior in the same step unless the rollout requires compatibility handling.
@@ -521,30 +522,26 @@ Recommended task sequence:
    - `last_seen_at = NULL`
    - `discord_profile_status` derived as `minimal`, `partial`, or `complete`
 5. Run post-backfill validation queries and record counts.
-6. Leave runtime-specific statuses and write paths to later tasks.
+6. Leave runtime-specific statuses and write paths to separate follow-up tasks.
 
-Implementation notes for the later migration task:
+Ongoing validation and deployment guidance:
 
 - keep the migration additive and reversible where practical
 - avoid long-running destructive table rewrites
 - do not introduce constraints that require every existing row to have values immediately
 - do not combine this migration with a broader `members` refactor
 
-## 12. Runtime follow-up tasks
+## 12. Implemented runtime status and remaining follow-up tasks
 
-This plan intentionally separates schema/backfill work from later runtime hardening.
+Implemented runtime status is summarized in the KAN-28 stabilization checkpoint above.
 
-Follow-up tasks should include:
+Remaining real follow-up tasks:
 
-1. Make `MemberService` the only owner of lifecycle metadata writes.
-2. Ensure creation paths set `created_source` and `created_at` at insert time.
-3. Ensure lifecycle-owned updates set `updated_at` consistently.
-4. Allow `DiscordMetadataService` to update profile cache and, where appropriate, `discord_profile_status` only after member existence is guaranteed by `MemberService`.
-5. Prevent routes, commands, and events from writing lifecycle metadata fields directly.
-6. Add throttled `last_seen_at` updates for website authenticated activity, for example once per day.
-7. Add `last_seen_at` updates for OAuth login, Discord interactions, and Discord messages when those flows represent real user activity.
-8. Keep background profile sync from updating `last_seen_at`.
-9. Introduce runtime semantics later for `stale`, `not_found`, and `sync_failed` only after explicit sync logic exists.
+1. Review the remaining ambiguous direct `memberService.ensureMemberByDiscordId(...)` callers and decide where explicit source attribution is justified.
+2. Review the legacy `DataBaseHandler.isMemberExists(...)` bootstrap path and decide whether it should be reduced or routed more directly through `MemberService`.
+3. Add a focused production validation checklist for lifecycle metadata counts after deployment.
+4. Introduce runtime semantics later for `stale`, `not_found`, and `sync_failed` only after explicit sync logic exists.
+5. Consider throttling Discord interaction writes only if production metrics show real write pressure.
 
 ## 13. Explicit non-goals
 
