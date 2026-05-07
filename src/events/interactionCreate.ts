@@ -16,6 +16,7 @@ export const interactionCreateController = async (interaction: Interaction) => {
       globalName: interaction.user.globalName,
       avatar: interaction.user.avatar,
       avatarUrl: interaction.user.displayAvatarURL({ size: 128 }) ?? null,
+      createdSource: "discord_interaction",
     });
   } catch (error) {
     console.error("Failed to sync interaction Discord profile metadata", error);

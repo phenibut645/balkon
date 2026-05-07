@@ -13,6 +13,7 @@ export const messageCreateController = async (message: Message) => {
             globalName: user.globalName,
             avatar: user.avatar,
             avatarUrl: user.displayAvatarURL({ size: 128 }) ?? null,
+            createdSource: "discord_message",
         });
     } catch (error) {
         console.error("Failed to sync message Discord profile metadata", error);

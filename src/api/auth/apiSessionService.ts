@@ -147,6 +147,7 @@ export class ApiSessionService {
       globalName: input.discordUser.global_name,
       avatar: input.discordUser.avatar,
       avatarUrl: buildDiscordAvatarUrl(input.discordUser.id, input.discordUser.avatar),
+      createdSource: "oauth",
     });
 
     await pool.query(

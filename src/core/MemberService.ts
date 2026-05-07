@@ -44,6 +44,7 @@ export type EnsureMemberFromDiscordProfileInput = {
   avatar?: string | null;
   avatarUrl?: string | null;
   locale?: string | null;
+  createdSource?: MemberCreatedSource;
 };
 
 export type MemberProfileCache = {
@@ -205,6 +206,7 @@ export class MemberService {
     const normalizedDiscordId = normalizeDiscordId(input.discordId);
     const memberId = await this.ensureMemberByDiscordId(normalizedDiscordId, {
       locale: normalizeOptionalLocale(input.locale) ?? undefined,
+      createdSource: input.createdSource,
     });
 
     await DiscordMetadataService.getInstance().upsertMemberDiscordProfile({
