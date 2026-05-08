@@ -6,6 +6,8 @@ This document records the current table ownership map for stabilization work.
 
 It is a planning and review artifact. It does not change runtime code, schema, migrations, or current ownership by itself.
 
+Every table or table group should have an explicit persistence owner. That owner may be a table repository, aggregate repository, domain service, or read-model/query service depending on the use case. The goal is explicit ownership and domain-specific methods that protect invariants, not one mechanical class per table and not a generic CRUD layer.
+
 Read together with:
 
 - `docs/refactor/DB_ACCESS_BOUNDARY.md`
@@ -17,7 +19,7 @@ Read together with:
 Column meanings:
 
 - current write owner(s): who currently mutates the table in runtime code
-- target owner: the intended future owner or primary persistence boundary
+- target owner: the intended future owner or primary persistence boundary; this may be a repository, domain service, or read-model/query owner depending on the use case
 - known read-model consumers: important readers, not necessarily exhaustive
 - risk/caveat: why the table is dangerous or ambiguous today
 - migration/schema notes: key additive, duplicate, or cascade warnings
@@ -26,7 +28,7 @@ Column meanings:
 
 | Table or table group | Current write owner(s) | Target owner | Known read-model consumers | Risk/caveat | Migration/schema notes |
 | --- | --- | --- | --- | --- | --- |
-| `members` | `MemberService`, `DiscordMetadataService`, `EconomyService`, `ItemService`, `JobService`, `ShopObsService`, `LocaleService`, legacy `DataBaseHandler` call paths | `MemberService` for lifecycle/profile shell; `EconomyService` for balance mutations; smaller read/query boundaries for projections | auth/session flows, overview/dashboard reads, item/streamer services, commands, notifications | overloaded identity/profile/economy row; many direct or indirect writers still exist | additive lifecycle columns already introduced; balance extraction is deferred; preserve old rows/backfill safety |
+| `members` | `MemberService`, `DiscordMetadataService`, `EconomyService`, `ItemService`, `JobService`, `ShopObsService`, `LocaleService`, remaining legacy `DataBaseHandler` call paths | `MemberService` for lifecycle/profile shell; `EconomyService` for some balance mutations; smaller read/query boundaries for projections | auth/session flows, overview/dashboard reads, item/streamer services, commands, notifications | overloaded identity/profile/economy row; many direct or indirect writers still exist, and balance writes are still not centralized even after KAN-62 moved roulette payout behind `EconomyService` | additive lifecycle columns already introduced; balance extraction is deferred; preserve old rows/backfill safety |
 | `guild_members` | legacy `DataBaseHandler`, `GuildMemberService`, bootstrap helpers | `GuildMemberService` plus later explicit bootstrap owner | permission controller, guild dashboard, bot admin founder audit, moderation joins | duplicate risk; mixed interaction/bootstrap ownership; no unique `(guild_id, member_id)` | schema currently allows duplicates; do not add constraints before duplicate review |
 | `guilds` | `GuildRecordService`, legacy `DataBaseHandler`, `DiscordMetadataService`, `StreamerService` fallback | `GuildRecordService` plus later `GuildRepository` or `GuildBootstrapService` | startup sync, guild dashboard, bootstrap status, streamer bindings | destructive delete and bootstrap orchestration remain high-risk | delete/archive policy still unresolved; schema has broad cascades |
 | `guild_channels` | `GuildChannelCacheService`, legacy bootstrap paths | `GuildChannelCacheService` or later `GuildChannelRepository` | bootstrap logic, notification channel joins, guild dashboard | stale cleanup is destructive and behavior-preserved only | no uniqueness on guild/channel id pair; cleanup semantics need dedicated review |
@@ -68,7 +70,7 @@ The following boundaries are currently accepted to touch the tables listed above
 | `GuildMemberService` | `guild_members`, `guilds` read, fallback `members` ensure via `MemberService` | narrow interaction-only guild-member boundary | not full guild-member ownership |
 | `MemberService` | `members`, indirect `general_settings` read | primary lifecycle creation and seen owner | `members` still mixes too many domains |
 | `DiscordMetadataService` | `members`, `guilds` metadata cache writes | accepted subordinate metadata boundary | must not become an independent member creator |
-| `EconomyService` | `members`, `admin_economy_adjustments`, `economy_daily_snapshots` | accepted current economy boundary for admin adjustments/reporting | direct balance writes still exist elsewhere |
+| `EconomyService` | `members`, `admin_economy_adjustments`, `economy_daily_snapshots` | accepted current economy boundary for admin adjustments, reporting, and roulette payout credit | direct balance writes still exist elsewhere; this is not complete economy ownership |
 | `SettingsService` | `general_settings` | accepted settings owner for one narrow table | does not solve `bot_settings` |
 | OBS and streamer services | `bot_settings`, `streamers`, `guild_streamers`, `streamer_services`, OBS-related tables | currently necessary domain surfaces | still broad and need further inventory-driven splits |
 
@@ -76,7 +78,7 @@ The following boundaries are currently accepted to touch the tables listed above
 
 These warnings are documented facts and should remain visible during stabilization:
 
-- `src/commands/roulette.ts` still mutates `members.balance` through generic `DataBaseHandler.updateTable(...)`.
+- KAN-62 removed the direct `src/commands/roulette.ts` `DataBaseHandler.updateTable(...)` mutation; roulette payout now goes through a tiny `EconomyService` method, but the wider roulette or economy semantics still need dedicated review.
 - `src/core/ItemService.ts` is still an overloaded persistence boundary and should not be treated as a model for new DB code.
 - `src/core/StreamerService.ts` is still an overloaded persistence boundary and should not be treated as a model for new DB code.
 - `bot_settings` is still a mixed settings/admin/security surface.

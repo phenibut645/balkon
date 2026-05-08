@@ -20,7 +20,8 @@ The accepted direction is:
 
 - `src/core/DataBaseHandler.ts` must shrink over time.
 - Raw SQL must not spread randomly across commands, events, routes, or generic helpers.
-- New database access must live only in explicit persistence or domain boundaries.
+- Every table or table group should have an explicit persistence owner.
+- New database access must live only in that explicit persistence owner, its accepted supporting read-model boundary, or other documented domain boundaries.
 - Existing broad legacy zones may remain temporarily, but they are under sunset, not endorsement.
 
 The project must avoid both failure modes:
@@ -31,6 +32,8 @@ The project must avoid both failure modes:
 ## 2. Core Rule
 
 Raw SQL belongs only in explicit persistence boundaries, infrastructure, or documented transitional legacy zones.
+
+An explicit persistence owner may be a table repository, aggregate repository, domain service, or read-model/query service depending on the use case. It must be named and scoped tightly enough that its ownership and invariants are obvious before opening the file.
 
 Commands, Discord events, API routes, auth/session middleware, and generic utilities must not gain new raw SQL or new generic DB helper usage.
 
@@ -49,6 +52,7 @@ The following layers may contain raw SQL when the ownership is explicit:
 3. Named repositories or domain persistence boundaries.
    Expected forms:
    - `XRepository`
+   - aggregate-focused repository when multiple tightly related tables share one owner
    - narrow persistence-focused `XService` when the repository split is not yet justified
    - `XReadModel` or `XQueryService` for cross-table read-only projections
 
@@ -90,8 +94,10 @@ Preferred naming:
 
 Avoid these patterns:
 
+- `BaseRepository`
 - `GenericRepository`
 - `SqlHelper`
+- `DataBaseHandler 2.0`
 - recreated `DataBaseHandler`-style wrappers
 - unnamed broad services that silently own multiple unrelated tables
 
@@ -196,7 +202,7 @@ These are documented facts, not fixes.
 
 | Surface | Why it matters | Current status |
 | --- | --- | --- |
-| `src/commands/roulette.ts` direct/generic balance mutation | command adapter still mutates `members.balance` through `DataBaseHandler.updateTable(...)` | known violation candidate; economy mutation is still out of owner boundary |
+| roulette payout flow after KAN-62 | the direct command-layer `members.balance` mutation was removed, but roulette economy behavior still uses a narrow legacy-loose payout path without stake debit, sufficiency checks, rounding policy, audit or ledger, idempotency, or session-race hardening | direct `DataBaseHandler.updateTable(...)` command mutation resolved; broader roulette or economy behavior review still pending |
 | `src/core/ItemService.ts` | overloaded broad persistence boundary for item catalog, inventory, market, craft, member resolve, and some economy-adjacent flows | accepted transitional legacy zone, but too broad |
 | `src/core/StreamerService.ts` | overloaded broad persistence boundary for streamers, guild bindings, OBS-related surfaces, and service-item behavior | accepted transitional legacy zone, but too broad |
 | `src/core/BotAdmin.ts` plus `bot_settings` | mixed settings/admin read-write surface, including contributor ids and bootstrap/OBS reads | accepted transitional mixed zone with security and ownership caveats |
