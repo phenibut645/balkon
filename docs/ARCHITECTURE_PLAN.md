@@ -293,6 +293,21 @@ If a file grows because it is convenient, the design is drifting.
 If a medium slice cannot be explained as one bounded ownership improvement, it is too broad.
 ```
 
+### Route module ownership
+
+Dashboard/API route files must not grow as catch-all endpoint containers.
+
+Rules:
+
+- new non-trivial dashboard endpoints should go into a coherent route module, not directly into `dashboardRoutes.ts`;
+- one route module should represent a feature endpoint cluster, not necessarily one single endpoint;
+- a single endpoint may get its own module only when it is complex, security-sensitive, likely to grow, or already forms a distinct boundary;
+- `dashboardRoutes.ts` should gradually become a composition layer that only registers route modules;
+- route extraction must preserve paths, HTTP methods, auth/preHandler requirements, request validation behavior, response shapes, error codes/messages, service calls, and side effects;
+- route extraction must not be combined with service/database refactors unless explicitly scoped and reviewed.
+
+See `docs/refactor/DASHBOARD_ROUTE_MODULES_PLAN.md` before adding new dashboard route groups or extracting existing ones.
+
 ### Member ownership
 
 ```text
@@ -804,6 +819,7 @@ Balkon target state:
 - application-level audit logging
 - additive database evolution first
 - thinner dashboard routes
+- coherent dashboard/API route modules instead of catch-all endpoint containers
 - thinner frontend pages
 - safer OBS relay/agent separation
 
