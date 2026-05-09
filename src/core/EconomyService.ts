@@ -54,6 +54,10 @@ export type RoulettePayoutResult = {
   error?: unknown;
 };
 
+export type JobRewardCreditResult = {
+  balanceAfter: number;
+};
+
 export type MemberBalancesLookupResult =
   | {
     success: true;
@@ -85,6 +89,10 @@ interface MemberBalanceRow extends RowDataPacket {
   ds_member_id: string;
   balance: number | string | null;
   ldm_balance: number | string | null;
+}
+
+interface MemberBalanceOnlyRow extends RowDataPacket {
+  balance: number | string | null;
 }
 
 class EconomyAdjustmentError extends Error {
@@ -293,6 +301,38 @@ export class EconomyService {
         error,
       };
     }
+  }
+
+  async creditJobReward(
+    input: {
+      memberId: number;
+      amount: number;
+    },
+    connection: PoolConnection,
+  ): Promise<JobRewardCreditResult> {
+    await connection.query<ResultSetHeader>(
+      `UPDATE members
+       SET balance = balance + ?
+       WHERE id = ?`,
+      [input.amount, input.memberId],
+    );
+
+    const [balanceRows] = await connection.query<MemberBalanceOnlyRow[]>(
+      `SELECT balance
+       FROM members
+       WHERE id = ?
+       LIMIT 1`,
+      [input.memberId],
+    );
+
+    const balanceRow = balanceRows[0];
+    if (!balanceRow) {
+      throw new Error("Failed to load job reward balance.");
+    }
+
+    return {
+      balanceAfter: toNumber(balanceRow.balance),
+    };
   }
 
   async adjustMemberBalanceByAdmin(input: AdminAdjustMemberBalanceInput): Promise<AdminAdjustMemberBalanceResult> {

@@ -2,6 +2,7 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
 import { ItemService } from "./ItemService.js";
+import { EconomyService } from "./EconomyService.js";
 
 export type JobView = {
   id: number;
@@ -86,10 +87,6 @@ interface JobRow extends RowDataPacket {
   reward_item_quantity: number | string | null;
   created_at: Date | string;
   updated_at: Date | string;
-}
-
-interface MemberBalanceRow extends RowDataPacket {
-  balance: number | string;
 }
 
 interface CooldownRow extends RowDataPacket {
@@ -463,11 +460,12 @@ export class JobService {
         }
       }
 
-      await connection.query<ResultSetHeader>(
-        `UPDATE members
-         SET balance = balance + ?
-         WHERE id = ?`,
-        [job.rewardAmount, member.data.id],
+      const rewardCredit = await EconomyService.getInstance().creditJobReward(
+        {
+          memberId: member.data.id,
+          amount: job.rewardAmount,
+        },
+        connection,
       );
 
       const grantedItems: JobRunGrantedItem[] = [];
@@ -512,18 +510,13 @@ export class JobService {
         [member.data.id, jobId, now],
       );
 
-      const [balanceRows] = await connection.query<MemberBalanceRow[]>(
-        `SELECT balance FROM members WHERE id = ? LIMIT 1`,
-        [member.data.id],
-      );
-
       const nextAvailableAt = new Date(now.getTime() + (job.cooldownSeconds * 1000));
       await connection.commit();
 
       return {
         jobId,
         rewardAmount: job.rewardAmount,
-        balanceAfter: Number(balanceRows[0]?.balance ?? 0),
+        balanceAfter: rewardCredit.balanceAfter,
         grantedItems,
         nextAvailableAt: nextAvailableAt.toISOString(),
       };
