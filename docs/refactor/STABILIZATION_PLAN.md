@@ -73,7 +73,7 @@ These facts were verified from the current repository state during the reset:
 ### Discord bot
 
 - `src/events/interactionCreate.ts` syncs member profile through `memberService.ensureMemberFromDiscordProfile(...)`.
-- `interactionCreate.ts` still calls `dataBaseHandler.isMemberExists(..., true, ..., true, interaction)` for guild/member bootstrap.
+- `src/events/interactionCreate.ts` now syncs in-guild membership through `guildMemberService.ensureInteractionGuildMember(...)` and no longer uses `DataBaseHandler` or legacy `isMemberExists(...)` in the adapter.
 - `src/events/messageCreate.ts` syncs member profile through `memberService.ensureMemberFromDiscordProfile(...)`.
 
 ### Member lifecycle
