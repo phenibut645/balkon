@@ -54,6 +54,19 @@ export type RoulettePayoutResult = {
   error?: unknown;
 };
 
+export type MemberBalancesLookupResult =
+  | {
+    success: true;
+    data: {
+      balance: number | string | null;
+      ldm_balance: number | string | null;
+    } | null;
+  }
+  | {
+    success: false;
+    error: unknown;
+  };
+
 interface TotalsRow extends RowDataPacket {
   total_odm: number | string | null;
   total_ldm: number | string | null;
@@ -227,6 +240,35 @@ export class EconomyService {
       current,
       change,
     };
+  }
+
+  async getMemberBalancesByDiscordId(discordUserId: string): Promise<MemberBalancesLookupResult> {
+    try {
+      const [rows] = await pool.query<MemberBalanceRow[]>(
+        `SELECT balance, ldm_balance
+         FROM members
+         WHERE ds_member_id = ?
+         LIMIT 1`,
+        [discordUserId],
+      );
+
+      const row = rows[0] ?? null;
+
+      return {
+        success: true,
+        data: row
+          ? {
+            balance: row.balance,
+            ldm_balance: row.ldm_balance,
+          }
+          : null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error,
+      };
+    }
   }
 
   async creditRoulettePayoutByDiscordId(

@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from "discord.js";
-import { dataBaseHandler, DataBaseHandler } from "../core/DataBaseHandler.js";
-import { CommandAccessLevels, MembersDB } from "../types/database.types.js";
+import { EconomyService } from "../core/EconomyService.js";
+import { CommandAccessLevels } from "../types/database.types.js";
 import { Command } from "../core/commands/Command.js";
 import { CommandName } from "../types/command.type.js";
 import { getUserLocale } from "../utils/commandLocale.js";
@@ -21,14 +21,14 @@ export default class BalanceCommand extends Command {
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const locale = await getUserLocale(interaction.user.id);
-        const balance = await dataBaseHandler.getFromTable<MembersDB>("members", {ds_member_id: interaction.user.id}, ["balance", "ldm_balance"])
-        if(DataBaseHandler.isSuccess(balance) && balance.data.length){
+        const balance = await EconomyService.getInstance().getMemberBalancesByDiscordId(interaction.user.id);
+        if(balance.success && balance.data){
             const embed = new EmbedBuilder()
             .setTitle(t(locale, "commands.balance.title"))
             .setColor("White")
             .addFields(
-                { name: t(locale, "commands.balance.odm"), value: String(balance.data[0].balance), inline: true },
-                { name: t(locale, "commands.balance.ldm"), value: String(balance.data[0].ldm_balance ?? 0), inline: true },
+                { name: t(locale, "commands.balance.odm"), value: String(balance.data.balance), inline: true },
+                { name: t(locale, "commands.balance.ldm"), value: String(balance.data.ldm_balance ?? 0), inline: true },
             )
             .setFooter({ text: t(locale, "commands.balance.footer") })
             await interaction.reply({embeds: [embed], flags: ["Ephemeral"]})
