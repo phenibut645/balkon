@@ -10,7 +10,7 @@ Balkon is a multi-component system:
 - `phenibut645/balkon-website` - Next.js dashboard frontend
 - `phenibut645/balkon-obs-agent` - local Windows OBS Agent
 
-The goal is not a rewrite. The goal is stabilization, architecture hardening, traceability, security, and safe incremental refactoring.
+The goal is not a rewrite. The goal is stabilization, architecture hardening, traceability, security, and safe bounded refactoring that makes meaningful progress without losing behavioral control.
 
 ---
 
@@ -26,6 +26,7 @@ Core rule:
 
 ```text
 No blind refactor.
+No endless micro-slices when a medium bounded slice is safer and more useful.
 No feature growth on top of uncontrolled write paths.
 No SQL in routes or Discord command handlers.
 No direct money/item/member lifecycle mutation outside the owning service/module.
@@ -33,7 +34,15 @@ No god files, god services, catch-all handlers, or hidden ownership.
 No temporary workaround without an owner, risk note, and follow-up path.
 ```
 
-During stabilization, do not add major product features except diagnostics, documentation, validation tooling, additive migrations, and small architecture-safe extractions.
+During stabilization, do not add major product features except diagnostics, documentation, validation tooling, additive migrations, and architecture-safe refactor slices.
+
+Preferred implementation unit:
+
+```text
+inventory -> risk map -> medium safe domain slice -> validation -> docs sync
+```
+
+A medium safe domain slice should reduce a meaningful part of debt in one selected area, often around 20-25% of that area's architectural problem when evidence supports it. It must still be bounded, reviewable, behavior-preserving, and rollback-friendly.
 
 ---
 
@@ -129,7 +138,7 @@ Target dependency direction:
 routes/controllers
   -> application services
   -> domain services
-  -> repositories
+  -> repositories/read models/query services
   -> database / external APIs
 ```
 
@@ -141,12 +150,12 @@ The same business use case should be callable from API, Discord bot, jobs, scrip
 Fastify API route
   -> use case / application service
   -> domain services
-  -> repositories
+  -> repositories/read models
 
 Discord command/event
   -> use case / application service
   -> domain services
-  -> repositories
+  -> repositories/read models
 ```
 
 API and Discord bot may differ in input parsing and response formatting. They must not diverge in business rules.
@@ -198,7 +207,7 @@ Allowed:
 - orchestrate a use case
 - enforce use-case authorization
 - open transactions for multi-write workflows
-- call domain services and repositories
+- call domain services and repositories/read models
 - call `AuditLogService`
 - coordinate external side effects after durable state is correct
 
@@ -230,6 +239,20 @@ Forbidden:
 - business policy
 - Discord/Fastify response behavior
 
+### Read models / query services
+
+Allowed:
+
+- cross-table read-only projections
+- dashboard or UI-shaped read DTOs
+- optimized read queries when ownership is documented
+
+Forbidden:
+
+- hidden writes
+- business mutations
+- catch-all query dumping grounds
+
 ---
 
 ## 4. Ownership Rules
@@ -240,6 +263,8 @@ Balkon must not concentrate unrelated responsibilities in one file, one service,
 
 Every important domain mutation must have an explicit owner.
 
+Every table or tightly related table group must have an explicit persistence owner. The owner may be a repository, aggregate repository, read model/query service, or narrow persistence-focused service when that is the clearest boundary.
+
 Forbidden:
 
 - adding unrelated business logic to an existing large file because it is convenient;
@@ -247,13 +272,16 @@ Forbidden:
 - expanding `DataBaseHandler`, `ItemService`, dashboard route files, Discord command handlers, or API route files as catch-all layers;
 - placing SQL or business mutations in routes, Discord commands, UI-facing handlers, or shared helpers that do not own the domain;
 - creating temporary architecture without documenting owner, risk, and follow-up;
-- hiding domain ownership behind names such as `utils`, `helpers`, `manager`, `handler`, or generic `service` files.
+- hiding domain ownership behind names such as `utils`, `helpers`, `manager`, `handler`, or generic `service` files;
+- replacing `DataBaseHandler` with `DataBaseHandler 2.0`, `BaseRepository`, `GenericRepository`, or generic CRUD abstractions;
+- treating literal ActiveRecord-style table classes as the default architecture.
 
 Allowed:
 
 - keeping legacy large files temporarily during stabilization;
 - creating inventory documents before splitting large files;
-- extracting one low-risk responsibility at a time;
+- extracting one coherent bounded responsibility or domain slice at a time;
+- creating repositories, services, models, read models, and query services when they clarify ownership;
 - creating temporary adapters only when they preserve behavior and have a documented removal path.
 
 Rule:
@@ -262,6 +290,7 @@ Rule:
 If a change does not have a clear owner, it is not ready to be implemented.
 If a workaround does not have a follow-up, it is not temporary.
 If a file grows because it is convenient, the design is drifting.
+If a medium slice cannot be explained as one bounded ownership improvement, it is too broad.
 ```
 
 ### Member ownership
@@ -547,7 +576,7 @@ Authorization must be enforced by backend/API/application services.
 
 No large file over roughly 500 lines should be refactored blindly.
 
-Before refactoring a large file, create an inventory:
+Before refactoring a large file, create or refresh an inventory:
 
 - methods/components
 - approximate line ranges
@@ -566,14 +595,16 @@ This applies especially to:
 - large frontend `page.tsx` files
 - large dashboard components
 
-Allowed first extractions:
+Allowed medium extractions:
 
-- pure helpers
-- read-only query services
+- one cohesive read-only query/repository boundary
+- one service/use-case boundary with known callers and preserved response shape
+- pure helpers plus their direct callers when they form one bounded slice
 - response mappers
-- small route modules with stable behavior
+- route modules with stable behavior
+- table or table-group persistence owners when ownership is clear
 
-Forbidden first extractions:
+Forbidden first extractions when the surface is not inventoried:
 
 - market purchase
 - craft execution
@@ -581,6 +612,7 @@ Forbidden first extractions:
 - inventory transfer
 - economy-coupled mutations
 - transaction-heavy flows
+- destructive cleanup/delete semantics
 
 ---
 
@@ -644,7 +676,7 @@ This is a target direction, not a one-day rewrite.
 
 Existing files may remain while they are gradually wrapped and split.
 
-New code should prefer the target structure.
+New code should prefer the target structure when the migration cost is justified by the task scope.
 
 ---
 
@@ -708,6 +740,7 @@ Every runtime PR must report:
 - manual validation checklist for affected flow
 - files changed intentionally
 - files changed unexpectedly
+- targeted grep/search results for the touched boundary when DB access or ownership changes
 
 Docs-only PRs do not require runtime build unless they change tooling.
 
@@ -715,9 +748,9 @@ Docs-only PRs do not require runtime build unless they change tooling.
 
 ## 15. Copilot / AI Workflow Law
 
-Copilot must not be asked to perform broad refactors without inventory.
+Copilot and AI assistants must not be asked to perform broad refactors without inventory.
 
-Good Copilot tasks:
+Good AI tasks:
 
 - create inventory docs
 - list methods and line ranges
@@ -725,7 +758,8 @@ Good Copilot tasks:
 - find direct member/balance mutations
 - move pure helpers
 - extract low-risk read-only code
-- preserve public signatures
+- implement medium scoped slices after architecture is decided
+- preserve public signatures and response shapes
 - generate validation checklist
 
 Manual senior review required:
@@ -740,14 +774,16 @@ Manual senior review required:
 - market/shop/craft/jobs purchase/reward flows
 - response shape compatibility
 - production diagnostics/backfill decisions
+- any patch from Weak Tommy or other lower-confidence implementation model
 
 Prompt rule:
 
 ```text
-Do not edit code until inventory is complete.
+Do not edit code until inventory is complete or the boundary is already proven.
 Preserve behavior and public response shapes.
 Do not change unrelated files.
 Run validation and summarize the diff.
+Medium slices are allowed only with explicit allowed files, do-not-touch list, behavior contract, validation, and rejection criteria.
 ```
 
 ---
@@ -760,10 +796,11 @@ Balkon target state:
 - API and Discord bot as adapters, not duplicated business layers
 - feature/domain-based layering
 - explicit responsibility ownership instead of god files, catch-all services, or bypass helpers
+- explicit persistence ownership for every table or tightly related table group
 - centralized member lifecycle ownership
 - centralized economy mutation ownership
 - transaction-safe money and item workflows
-- repository-based SQL access
+- repository/read-model/query-service based SQL access
 - application-level audit logging
 - additive database evolution first
 - thinner dashboard routes
@@ -774,8 +811,9 @@ The law is simple:
 
 ```text
 Inventory first.
-Small PR second.
-Build and manual validation third.
+Risk map second.
+Medium safe domain slice third.
+Build, targeted searches, and manual validation fourth.
 No uncontrolled write paths.
 No blind refactor.
 No hidden ownership.
