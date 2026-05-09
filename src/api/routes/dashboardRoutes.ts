@@ -1286,12 +1286,20 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
 
   app.get("/economy/me", { preHandler: requireAuth }, async request => {
     try {
-      const member = await ItemService.getInstance().ensureMemberByDiscordId(request.authUser!.discordId);
+      await memberService.ensureMemberByDiscordId(request.authUser!.discordId, { createdSource: "unknown" });
+      const balanceResponse = await EconomyService.getInstance().getMemberBalancesByDiscordId(request.authUser!.discordId);
+      if (!balanceResponse.success || !balanceResponse.data) {
+        return serviceErrorResponse(
+          "ECONOMY_LOAD_FAILED",
+          "Failed to load balance.",
+        );
+      }
+
       return {
         ok: true,
         balance: {
-          odm: Number(member.data.balance),
-          ldm: Number(member.data.ldm_balance),
+          odm: Number(balanceResponse.data.balance),
+          ldm: Number(balanceResponse.data.ldm_balance),
         },
       };
     } catch (error) {
