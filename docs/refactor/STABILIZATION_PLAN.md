@@ -21,8 +21,16 @@ Do not start major product features until the critical backend write paths are c
 Primary goal:
 
 ```text
-Recover control over member lifecycle, economy mutations, database traceability, and large-file refactoring boundaries before adding new features.
+Recover control over member lifecycle, economy mutations, database traceability, security-sensitive persistence, and large-file refactoring boundaries before adding new features.
 ```
+
+Preferred execution unit:
+
+```text
+inventory -> risk map -> medium safe domain slice -> validation -> docs sync
+```
+
+A medium safe domain slice should make visible progress in one selected area, usually around 20-25% of that area's architectural debt when repo evidence supports it. It is not a license for broad rewrites.
 
 ---
 
@@ -30,10 +38,10 @@ Recover control over member lifecycle, economy mutations, database traceability,
 
 Every task in this plan must follow the law:
 
-- inventory first
-- no blind refactor
-- small PRs
-- preserve public behavior and response shapes
+- inventory first when the surface is unknown, broad, stale, or risky
+- risk map before implementation
+- medium bounded PRs/slices instead of endless tiny 1-3 line patches when a wider coherent slice is safer
+- preserve public behavior and response shapes unless the change explicitly scopes a behavior change
 - no SQL in routes or Discord commands
 - no direct member creation outside member owner
 - no direct balance mutation outside economy owner
@@ -42,18 +50,20 @@ Every task in this plan must follow the law:
 - additive database migrations first
 - audit important mutations
 - run build/manual validation for runtime changes
+- run targeted searches/greps for touched boundaries
 
 ### Responsibility check
 
 Before implementation, answer:
 
 - Which domain owns this behavior?
-- Which service, repository, or module should contain the mutation?
+- Which service, repository, read model, query service, or module should contain the mutation/read?
 - Is this adding responsibility to an already overloaded file?
 - Is this bypassing `MemberService`, `EconomyService`, the future inventory owner, or `AuditLogService`?
 - Is this using `DataBaseHandler`, `ItemService`, a dashboard route file, a Discord command handler, or a generic helper as a catch-all layer?
 - Is this a temporary workaround?
 - If temporary, who owns it, what is the risk, and where is the follow-up documented?
+- Can this be done as a medium safe domain slice with explicit allowed files, do-not-touch boundaries, validation, and rollback-friendly shape?
 
 If the owner is unclear, do not implement yet. Create or update the relevant inventory first.
 
@@ -110,7 +120,7 @@ Goal: create factual maps before refactoring.
 
 ### 1.1 Backend inventory document
 
-Create:
+Create or refresh:
 
 ```text
 docs/refactor/BACKEND_INVENTORY.md
@@ -126,13 +136,13 @@ Must include:
 - direct `UPDATE members SET balance/ldm_balance`
 - `DataBaseHandler` usage
 - high-risk files and why they are high risk
-- first safe PR candidates
+- first medium safe domain-slice candidates
 
 No runtime code changes.
 
 ### 1.2 DataBaseHandler usage inventory
 
-Create:
+Create or refresh:
 
 ```text
 docs/refactor/DATABASE_HANDLER_USAGE_INVENTORY.md
@@ -152,8 +162,9 @@ For each usage:
 - function/method
 - purpose
 - risk level
-- target owner/service/repository
+- target owner/service/repository/read model
 - safe replacement strategy
+- whether the candidate is a micro cleanup, medium domain slice, or blocked high-risk slice
 
 No runtime code changes.
 
@@ -191,6 +202,7 @@ Validation:
 
 - `npm run build`
 - manual login/member diagnostic on dev
+- targeted grep for direct member creation touched by the slice
 - no unrelated files changed
 
 ### 2.2 Stop `DiscordMetadataService` from creating members
@@ -245,7 +257,7 @@ Goal: understand schema risks and add traceability before normalization.
 
 ### 3.1 Database inventory document
 
-Create:
+Create or refresh:
 
 ```text
 docs/refactor/DATABASE_INVENTORY.md
@@ -267,6 +279,7 @@ Must include:
 - audit gaps
 - money type inconsistencies
 - missing indexes/constraints that are obvious from access patterns
+- explicit persistence owner candidates by table/table group
 
 No runtime changes.
 
@@ -290,7 +303,7 @@ Goal: make balance changes controlled, auditable, and transaction-safe.
 
 ### 4.1 Economy mutation inventory
 
-Create:
+Create or refresh:
 
 ```text
 docs/refactor/ECONOMY_MUTATION_INVENTORY.md
@@ -311,6 +324,7 @@ For each mutation:
 - audit behavior
 - target `EconomyService` method/use case
 - extraction risk
+- whether it can be grouped into a medium safe economy slice
 
 Known starting points:
 
@@ -321,14 +335,14 @@ Known starting points:
 - `ItemService` market/shop/craft flows
 - `roulette.ts` direct reward behavior if still present
 
-### 4.2 First low-risk economy extraction
+### 4.2 First medium safe economy extraction
 
-Choose one low-risk flow only.
+Choose one coherent low/medium-risk flow or one closely related pair of flows.
 
 Good first candidates:
 
-- admin economy adjustment cleanup
-- simple job reward credit
+- admin economy adjustment cleanup plus its repository boundary if behavior is already controlled
+- job reward credit through `EconomyService` plus a narrow repository if transaction behavior is clear
 - a simple direct credit/debit with no external side effect
 
 Avoid first:
@@ -344,6 +358,7 @@ Validation:
 - before/after DB check on dev
 - audit row if audit is wired
 - response shape unchanged
+- targeted grep for direct balance mutations
 
 ---
 
@@ -353,7 +368,7 @@ Goal: split `ItemService.ts` without breaking market/inventory/shop/craft.
 
 ### 5.1 ItemService inventory
 
-Create:
+Create or refresh:
 
 ```text
 docs/refactor/ITEM_SERVICE_INVENTORY.md
@@ -374,19 +389,20 @@ For every public method and important private helper:
 - response shape
 - target owner
 - extraction risk
+- grouping recommendation for a medium safe domain slice
 
 No runtime changes.
 
-### 5.2 First low-risk extraction
+### 5.2 First medium safe extraction
 
 Allowed candidates:
 
-- pure display helper
-- rarity/type mapping helper
+- read-only item template repository/read model
+- rarity/type mapping plus item catalog read boundary
+- pure display helper plus direct callers
 - read-only search service
-- read-only item template repository
 
-Forbidden first candidates:
+Forbidden first candidates unless a fresh inventory proves the slice is bounded:
 
 - market purchase
 - craft execution
@@ -404,11 +420,11 @@ Steps:
 
 1. inventory remaining endpoints in `dashboardRoutes.ts`
 2. group by domain
-3. extract one route group at a time
+3. extract one coherent route group at a time
 4. preserve response shapes
 5. standardize validation/error mapping later
 
-Do not combine with service/domain refactors unless required.
+Do not combine with service/domain refactors unless required by the same bounded slice and explicitly reviewed.
 
 ---
 
@@ -434,7 +450,7 @@ Review:
 - sensitive values in logs
 - frontend-only permission assumptions
 
-Security fixes should be separate PRs unless tiny and directly related to current hardening work.
+Security fixes should be separate PRs unless they are part of one bounded security slice with explicit validation and rollback plan.
 
 ---
 
@@ -456,7 +472,7 @@ Must include:
 - repeated modals/forms/tables/cards/loading/error states
 - duplicated state logic
 - feature boundaries
-- first three low-risk extraction candidates
+- first three medium safe extraction candidates
 
 Then proceed:
 
@@ -467,23 +483,20 @@ Then proceed:
 
 ---
 
-## 11. Recommended PR Order
+## 11. Recommended Slice Order
 
 Current recommended order:
 
-1. `docs: define Balkon architecture law`
-2. `docs: add Balkon stabilization plan`
-3. `docs: add responsibility distribution law`
-4. `docs: add backend inventory`
-5. `docs: add database inventory`
-6. `fix: avoid AUTO_INCREMENT burn in MemberService.ensureMemberByDiscordId`
-7. `fix: stop DiscordMetadataService from creating members`
-8. `docs: add DataBaseHandler usage inventory`
-9. `docs: add economy mutation inventory`
-10. `feat: add audit_logs migration and AuditLogService MVP`
-11. `refactor: route one low-risk balance mutation through EconomyService`
-12. `docs: add ItemService inventory`
-13. `refactor: extract one low-risk ItemService helper/service`
+1. refresh stale inventories against current repo state when the next surface is unclear
+2. member lifecycle hardening slice: stop independent member creation paths and fix unsafe ensure behavior
+3. database inventory/owner map slice: table groups, schema risks, audit gaps, persistence owners
+4. audit foundation slice: `audit_logs` migration plus `AuditLogService`/repository MVP
+5. economy ownership slice: one coherent low/medium-risk balance mutation group through `EconomyService` and repository boundary
+6. ItemService inventory slice: method map, SQL map, target owners, grouping recommendations
+7. ItemService read-only extraction slice: catalog/rarity/type/read-only search boundary
+8. dashboard routes composition slice: one route group at a time
+9. auth/session security inventory and bounded hardening slice
+10. streamer/OBS inventory and first bounded extraction slice
 
 This order can change when new facts are discovered, but changes must be justified.
 
@@ -500,22 +513,25 @@ Every runtime PR should include:
 
 ## Responsibility check
 - [ ] domain owner identified
-- [ ] target service/repository/module identified
+- [ ] target service/repository/read model/module identified
 - [ ] no catch-all layer expanded without inventory
 - [ ] no generic helper used to bypass ownership
 - [ ] temporary workaround has owner, risk, and follow-up, or no workaround was added
+- [ ] medium slice is bounded and rollback-friendly
 
 ## Architecture law checks
 - [ ] no SQL added to routes/commands
 - [ ] no new direct member creation outside MemberService/member repository
 - [ ] no new direct balance mutation outside EconomyService/economy repository
 - [ ] no hidden ownership or catch-all layer introduced
-- [ ] no large-file blind refactor
+- [ ] no blind large-file refactor
+- [ ] no `DataBaseHandler 2.0`, `BaseRepository`, `GenericRepository`, or generic CRUD layer
 - [ ] response shapes preserved or explicitly documented
 
 ## Validation
 - [ ] npm run build
 - [ ] tests/lint if available
+- [ ] targeted grep/search results for touched ownership boundary
 - [ ] manual validation steps listed
 
 ## Risk
