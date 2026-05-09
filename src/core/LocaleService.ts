@@ -54,15 +54,7 @@ export class LocaleService {
                 data: normalizedLocale,
             };
         } catch (error) {
-            // Use a local error handler to match legacy DBResponseFail shape
-            return {
-                success: false,
-                error: {
-                    reason: "unknown",
-                    relatedTo: "unknown",
-                    message: error instanceof Error ? error.message : String(error),
-                }
-            };
+            return this.errorHandling(error);
         }
     }
 
@@ -74,6 +66,20 @@ export class LocaleService {
             throw new Error("Unable to resolve member.");
         }
         return await localePreferenceRepository.getMemberById(memberId);
+    }
+
+    private errorHandling(error?: unknown): DBResponse<never> {
+        return {
+            success: false,
+            error: {
+                reason: "unknown",
+                relatedTo: "unknown",
+                code: error instanceof Error && typeof (error as Error & { code?: unknown }).code === "string"
+                    ? (error as Error & { code?: string }).code
+                    : undefined,
+                message: error instanceof Error ? error.message : undefined,
+            }
+        };
     }
 }
 

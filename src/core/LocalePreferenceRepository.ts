@@ -1,6 +1,6 @@
 import pool from "../db.js";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
-import { DBResponse, DBResponseSuccess, DBResponseFail } from "./DataBaseHandler.js";
+import type { DBResponse, DBResponseSuccess, DBResponseFail } from "./DataBaseHandler.js";
 
 export class LocalePreferenceRepository {
     private static instance: LocalePreferenceRepository;
@@ -48,12 +48,16 @@ export class LocalePreferenceRepository {
 
     // Check if explicit locale selection exists in bot_settings
     async hasExplicitLocaleSelection(discordUserId: string): Promise<boolean> {
-        const settingKey = this.getLocaleSelectedSettingKey(discordUserId);
-        const [rows] = await pool.query<RowDataPacket[]>(
-            `SELECT id FROM bot_settings WHERE setting_key = ? LIMIT 1`,
-            [settingKey]
-        );
-        return rows.length > 0;
+        try {
+            const settingKey = this.getLocaleSelectedSettingKey(discordUserId);
+            const [rows] = await pool.query<RowDataPacket[]>(
+                `SELECT id FROM bot_settings WHERE setting_key = ? LIMIT 1`,
+                [settingKey]
+            );
+            return rows.length > 0;
+        } catch {
+            return false;
+        }
     }
 
     // Upsert explicit locale selection marker in bot_settings
