@@ -15,21 +15,23 @@ Read together with:
 
 ## 1. Verdict
 
-`ItemService` is ready for a medium implementation slice, but only for a read-only item catalog/search boundary.
+The recommended medium slice has been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, with `ItemService` preserving the same public compatibility methods.
 
-Recommended next slice:
-
-```text
-Extract a read-only item catalog/search boundary from ItemService.
-```
-
-Why this slice:
+Why this slice was chosen:
 
 - It reduces long-term item-system debt by separating item template, rarity/type, presentation metadata, and autocomplete reads from the overloaded `ItemService`.
 - It directly supports future admin/API-managed configuration because item templates, rarities, types, localization, image URL, emoji, and sell/trade flags become a clearer catalog boundary.
 - It avoids economy-coupled and transaction-heavy flows.
 - It preserves response shapes used by API, Discord commands, and website/admin UI.
 - It does not implement cases, keys, potions, bundles, serial numbers, upgrades, schema migrations, or item admin UI.
+
+Completed in this slice:
+
+- Added `src/core/ItemCatalogReadService.ts` as a narrow singleton read boundary.
+- Moved read-only ownership for `listRarities(...)`, `searchRarities(...)`, `searchItemTypes(...)`, `searchItemTemplates(...)`, `listItemTemplates(...)`, and `getItemTemplateById(...)` into `ItemCatalogReadService`.
+- Moved the `mapItemTemplateRow(...)` mapper required by `getItemTemplateById(...)` into `ItemCatalogReadService`.
+- Kept `ItemService` method names and return shapes unchanged by delegating those six public methods to `ItemCatalogReadService`.
+- Kept market, bot shop, inventory, craft, OBS/service-item, and write flows in `ItemService` for later slices.
 
 Do not pick these first:
 
@@ -77,12 +79,12 @@ Current schema facts from `sql/tables.sql`:
 | Member resolving compatibility wrapper | `getInstance` | 269-275 | Singleton accessor | None | None | None | None | None | None | None | Global singleton | Many services/routes/commands | `ItemService` instance | Transitional only | Low | None | No |
 | Member resolving compatibility wrapper | `ensureMemberByDiscordId` | 277-294 | Ensure/load member by Discord ID and return full legacy `MembersDB` row | `members` | `getFromTable("members", { id })` | None | None | Calls `memberService.ensureMemberByDiscordId(..., { createdSource: "unknown" })` then legacy load | Reads balance as part of full row | None | Throws generic errors | `EconomyService` previously, `JobService`, routes after market/sell for balance, `StreamerServicesService`, `StreamerApplicationService`, commands indirectly | `DBResponseSuccess<MembersDB>` | `MemberService` / future member read boundary | Medium | Member resolving cleanup | Yes, but not in item-platform slice |
 | Rarities and item types | `createRarity` | 296-320 | Create rarity with normalized lower-case name and optional color | `item_rarities` | `getFromTable`, `addRecords` | None | None | None | None | None | None | Admin/menu routes/commands | `DBResponse<{ insertId }>` | `ItemCatalogService` / `ItemCatalogRepository` | Low-medium | Catalog admin boundary | Later |
-| Rarities and item types | `listRarities` | 322-339 | List rarity definitions | `item_rarities` | Error helper only | `SELECT id, name, color_hex` | None | None | None | None | None | Admin rarity API/menu | `DBResponse<ItemRarityView[]>` | `ItemCatalogReadModel` | Low | Recommended read slice | Yes |
+| Rarities and item types | `listRarities` | 322-339 | Compatibility method in `ItemService`; delegates rarity list read to `ItemCatalogReadService` | `item_rarities` | Error helper only | `SELECT id, name, color_hex` | None | None | None | None | None | Admin rarity API/menu | `DBResponse<ItemRarityView[]>` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Rarities and item types | `updateRarity` | 341-382 | Update rarity name/color with duplicate check | `item_rarities`, `items` indirectly only by FK semantics | `getFromTable` | `SELECT duplicate`, `UPDATE item_rarities` | None | None | None | None | None | Admin/menu | `DBResponse<{ rarityId }>` | `ItemCatalogService` | Medium | Catalog admin boundary | Later |
 | Rarities and item types | `deleteRarity` | 384-422 | Delete rarity if not used by item templates | `item_rarities`, `items` usage count | Error helper only | `SELECT COUNT(*) FROM items`, `DELETE item_rarities` | None | None | None | None | Destructive metadata delete | Admin/menu | `DBResponse<{ rarityId }>` | `ItemCatalogService` | Medium | Catalog admin boundary | Later |
-| Search/autocomplete helpers | `searchRarities` | 424-441 | Rarity autocomplete | `item_rarities` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `dashboardRoutes` admin search, menu autocomplete | `DBResponse<AutocompleteOption[]>`, `value` is rarity name | `ItemCatalogSearchService` or catalog read model | Low | Recommended read slice | Yes |
-| Search/autocomplete helpers | `searchItemTypes` | 443-460 | Item type autocomplete | `item_types` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `dashboardRoutes` admin search, menu/item create flows | `DBResponse<AutocompleteOption[]>`, `value` is type name | `ItemCatalogSearchService` or catalog read model | Low | Recommended read slice | Yes |
-| Search/autocomplete helpers | `searchItemTemplates` | 462-479 | Item template autocomplete | `items` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `iteminfo`, `itemgive`, `serviceaction`, admin jobs/menu/search | `DBResponse<AutocompleteOption[]>`, `name="#id name"`, `value=id` | `ItemCatalogSearchService` | Low | Recommended read slice | Yes |
+| Search/autocomplete helpers | `searchRarities` | 424-441 | Compatibility method in `ItemService`; delegates rarity autocomplete to `ItemCatalogReadService` | `item_rarities` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `dashboardRoutes` admin search, menu autocomplete | `DBResponse<AutocompleteOption[]>`, `value` is rarity name | `ItemCatalogReadService` | Low | Completed read slice | Completed |
+| Search/autocomplete helpers | `searchItemTypes` | 443-460 | Compatibility method in `ItemService`; delegates item type autocomplete to `ItemCatalogReadService` | `item_types` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `dashboardRoutes` admin search, menu/item create flows | `DBResponse<AutocompleteOption[]>`, `value` is type name | `ItemCatalogReadService` | Low | Completed read slice | Completed |
+| Search/autocomplete helpers | `searchItemTemplates` | 462-479 | Compatibility method in `ItemService`; delegates item template autocomplete to `ItemCatalogReadService` | `items` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `iteminfo`, `itemgive`, `serviceaction`, admin jobs/menu/search | `DBResponse<AutocompleteOption[]>`, `name="#id name"`, `value=id` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Search/autocomplete helpers | `searchUserInventory` | 481-506 | User inventory autocomplete | `member_items`, `members`, `items` | Error helper only | Join read by owner Discord ID | None | Reads by Discord ID only; does not ensure member | None | None | None | Menu/command autocomplete | `DBResponse<AutocompleteOption[]>`, `name="#inventoryId name"`, `value=inventoryItemId` | `InventoryReadModel` | Low-medium | Inventory read model | Not first unless grouped carefully |
 | Search/autocomplete helpers | `searchPublicListings` | 508-534 | Public market listing autocomplete | `item_public_market`, `member_items`, `items` | Error helper only | Join read | None | None | None | None | None | Market/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `MarketReadModel` | Low-medium | Search extraction | Maybe, if read-only slice includes market search |
 | Search/autocomplete helpers | `searchUserPublicListings` | 536-566 | User listing autocomplete by filtering `listUserPublicMarket` | Indirect `item_public_market`, `member_items`, `items`, `members` | In callee only | In callee only | None | None | None | None | Depends on full market list projection | Market/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `MarketReadModel` | Medium | Market read slice | Not first if catalog-only |
@@ -99,8 +101,8 @@ Current schema facts from `sql/tables.sql`:
 | Craft recipes and craft execution | `listCraftRecipes` | 1174-1229 | Read craft recipes with result and ingredient localized metadata | `craft_recipes`, `craft_recipe_ingredients`, `items`, `item_rarities` | Error helper only | Two read queries | None | None | None | None | None | API `/craft/recipes`, `/admin/craft/recipes`, craft/menu UI | `DBResponse<CraftRecipeView[]>` | `CraftReadModel` | Low-medium | Read model candidate | Maybe after catalog read slice |
 | Craft recipes and craft execution | `getCraftRecipeById` | 1231-1289 | Read one craft recipe with localized metadata | `craft_recipes`, `craft_recipe_ingredients`, `items`, `item_rarities` | Error helper only | Two read queries | None | None | None | None | None | `craftExecutionRoutes` before craft execution | `DBResponse<CraftRecipeView | null>` | `CraftReadModel` | Low-medium | Read model candidate | Maybe after catalog read slice |
 | Craft recipes and craft execution | `craftForMember` | 1291-1434 | Execute craft: check ingredients, consume owned items, delete related public listings, grant result items | `craft_recipes`, `craft_recipe_ingredients`, `items`, `item_rarities`, `member_items`, `item_public_market`, `members` | Error helper only; member resolve uses wrapper | Many `connection.query`, dynamic `IN` placeholders | Explicit transaction; recipe row locked; all member inventory rows locked | Calls `ensureMemberByDiscordId` inside transaction, but its internal DB read is outside the same connection | None | Deletes ingredient `member_items`, deletes public listings for consumed items, inserts result `member_items` with `tier=1` | No notification/audit | API `/craft/:recipeId/craft`, menu craft | `DBResponse<{ crafted; resultItemTemplateId; resultAmount }>` | `CraftExecutionService` + `InventoryService` | High | Craft execution slice | No |
-| Item catalog / templates | `listItemTemplates` | 1436-1470 | List item templates with type/rarity/localization/presentation metadata | `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | API `/admin/items`, menu admin, admin jobs selector | `DBResponse<ItemTemplateRow[]>` raw-ish DB row shape | `ItemCatalogReadModel` | Low | Recommended read slice | Yes |
-| Item catalog / templates | `getItemTemplateById` | 1472-1515 | Read one item template view | `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | `StreamerService.upsertItemServiceAction`, item info flows | `DBResponse<ItemTemplateView | null>` | `ItemCatalogReadModel` | Low | Recommended read slice | Yes |
+| Item catalog / templates | `listItemTemplates` | 1436-1470 | Compatibility method in `ItemService`; delegates item template list read to `ItemCatalogReadService` | `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | API `/admin/items`, menu admin, admin jobs selector | `DBResponse<ItemTemplateRow[]>` raw-ish DB row shape | `ItemCatalogReadService` | Low | Completed read slice | Completed |
+| Item catalog / templates | `getItemTemplateById` | 1472-1515 | Compatibility method in `ItemService`; delegates item template view read to `ItemCatalogReadService` | `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | `StreamerService.upsertItemServiceAction`, item info flows | `DBResponse<ItemTemplateView | null>` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Bot shop buy/sell | `addOrUpdateBotShopListing` | 1517-1571 | Admin create/update bot shop listing for item template | `item_general_store`, `items` | `getFromTable`, `updateTable`, `addRecords` | None | None | None | None | None | Upsert behavior by `item_id`; no explicit actor | API `/admin/botshop`, menu/admin | `DBResponse<{ listingId }>` | `BotShopService` | Medium | Bot shop admin boundary | Not first |
 | Bot shop buy/sell | `deleteBotShopListing` | 1573-1598 | Delete bot shop listing | `item_general_store` | Error helper only | `DELETE item_general_store` | None | None | None | None | Destructive listing config delete | API `/admin/botshop/:listingId`, menu/admin | `DBResponse<{ listingId }>` | `BotShopService` | Medium | Bot shop admin boundary | Not first |
 | Bot shop buy/sell | `listBotShop` | 1600-1657 | Read bot shop listing cards with item metadata | `item_general_store`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | API `/botshop`, `/admin/botshop`, menu bot shop | `DBResponse<BotShopListingView[]>` | `BotShopReadModel` | Low-medium | Read model candidate | Maybe after catalog read slice |
@@ -117,7 +119,7 @@ Current schema facts from `sql/tables.sql`:
 | Inventory reads | `getInventoryItemById` | 2405-2457 | Read one inventory item by instance id | `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | Used by market listing, service item prep, item view | `DBResponse<InventoryItemView | null>` | `InventoryReadModel` | Low-medium | Inventory read model | Maybe after catalog read slice |
 | Presentation metadata and localization | `mapInventoryRow` | 2459-2494 | Map inventory SQL row to API/bot view with localization and identity fields | None | None | None | None | None | None | None | Calls `resolveMemberDisplayName`; bug-prone if passed unbound | `getInventory`, `getInventoryItemById` | `InventoryItemView` | `InventoryReadModel` mapper | Low | Inventory read model | Later |
 | Presentation metadata and localization | `resolveMemberDisplayName` | 2496-2508 | Resolve display name from cached global name/username; fallback to static unknown text | None | None | None | None | None | None | None | Used for inventory/market owner fields | `mapInventoryRow`, `listPublicMarket` | `string` | Shared identity/display mapper or read model-local helper | Low | Pure helper/read model | Later |
-| Presentation metadata and localization | `mapItemTemplateRow` | 2510-2530 | Map item template row to item template API view | None | None | None | None | None | None | None | Maps localization/presentation fields | `getItemTemplateById` | `ItemTemplateView` | `ItemCatalogReadModel` | Low | Recommended read slice | Yes |
+| Presentation metadata and localization | `mapItemTemplateRow` | 2510-2530 | Private mapper moved from `ItemService` to `ItemCatalogReadService` for item template read projection | None | None | None | None | None | None | None | Maps localization/presentation fields | `getItemTemplateById` | `ItemTemplateView` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Presentation metadata and localization | `mapCraftRecipe` | 2532-2563 | Map recipe + ingredient rows to craft recipe view with localized fields | None | None | None | None | None | None | None | Maps result/ingredient localization and emoji | `listCraftRecipes`, `getCraftRecipeById` | `CraftRecipeView` | `CraftReadModel` | Low | Craft read model | Later |
 | Presentation metadata and localization | `normalizeRequiredText` | 2565-2572 | Trim required text and throw if empty | None | None | None | None | None | None | None | Shared by many writes | Internal helper | `string` or throw | Local validator in target services | Low | Move with direct callers | Not alone |
 | Presentation metadata and localization | `normalizeOptionalText` | 2574-2581 | Trim optional text to `string|null` | None | None | None | None | None | None | None | Shared by catalog/craft writes | Internal helper | `string|null` | Local validator | Low | Move with direct callers | Not alone |
@@ -199,7 +201,7 @@ Current missing future fields:
 
 Target direction:
 
-- `ItemCatalogReadModel` for read-only item template/type/rarity projections.
+- `ItemCatalogReadService` now owns the current read-only item template/type/rarity projections behind preserved `ItemService` compatibility methods.
 - Later `ItemCatalogService` for admin writes.
 - Do not add future case/key/potion/bundle behavior here by hardcoded item name or id.
 
@@ -223,7 +225,7 @@ Current behavior:
 
 Target direction:
 
-- Catalog boundary owns both rarity and type lookups.
+- Catalog boundary now owns the read-only rarity and type lookups through `ItemCatalogReadService`.
 - Later decide whether item type creation should remain implicit or become admin-managed explicit configuration.
 
 ### 4.4 Inventory reads
@@ -382,7 +384,7 @@ Current behavior:
 
 Target direction:
 
-- First slice can safely extract catalog searches: rarity, type, item template.
+- The first safe catalog read/search slice is complete: rarity, type, and item template searches now route through `ItemCatalogReadService`.
 - Market/shop/craft/inventory searches can follow in domain-specific read models.
 
 ### 4.10 Service/OBS-related item surfaces
