@@ -23,11 +23,13 @@ The accepted direction is:
 - Every table or table group should have an explicit persistence owner.
 - New database access must live only in that explicit persistence owner, its accepted supporting read-model boundary, or other documented domain boundaries.
 - Existing broad legacy zones may remain temporarily, but they are under sunset, not endorsement.
+- Refactoring should use medium safe domain slices when evidence supports them, not endless tiny line edits or broad rewrites.
 
-The project must avoid both failure modes:
+The project must avoid all three failure modes:
 
 - a god `DataBaseHandler.ts`
 - scattered `pool.query(...)` usage across arbitrary files
+- a new generic repository/helper layer that hides ownership while pretending to be architecture
 
 ## 2. Core Rule
 
@@ -100,6 +102,7 @@ Avoid these patterns:
 - `DataBaseHandler 2.0`
 - recreated `DataBaseHandler`-style wrappers
 - unnamed broad services that silently own multiple unrelated tables
+- literal ActiveRecord-style table classes as the default design
 
 Naming must make the ownership boundary obvious before opening the file.
 
@@ -132,7 +135,7 @@ If a change requires writing across multiple domains, the PR must first identify
 
 ## 8. DBResponse Transition Rule
 
-The current `DBResponse` and legacy error shape may be preserved during stabilization when a small PR needs compatibility.
+The current `DBResponse` and legacy error shape may be preserved during stabilization when compatibility is required.
 
 Temporary allowed patterns:
 
@@ -166,7 +169,7 @@ If the write owner is unclear, inventory first and stop the implementation task.
 
 Every PR that introduces or changes DB access should answer:
 
-1. Which service or repository owns this write?
+1. Which service, repository, read model, or query service owns this read/write?
 2. Why is this file the correct persistence boundary?
 3. Does this add SQL to an adapter, generic utility, or catch-all service?
 4. Does this introduce a new runtime import cycle?
@@ -176,6 +179,7 @@ Every PR that introduces or changes DB access should answer:
 8. Does the PR preserve old rows and migration safety constraints?
 9. Is the change additive and behavior-preserving where required?
 10. Are transitional exceptions called out explicitly instead of hidden?
+11. Is the slice medium-bounded and rollback-friendly, rather than a blind broad rewrite?
 
 ## 11. Accepted Transitional Boundaries
 
@@ -208,7 +212,7 @@ These are documented facts, not fixes.
 | `src/core/BotAdmin.ts` plus `bot_settings` | mixed settings/admin read-write surface, including contributor ids and bootstrap/OBS reads | accepted transitional mixed zone with security and ownership caveats |
 | destructive guild/channel/role cleanup paths | stale cleanup and delete behavior remain high-risk and behavior-preserved only | explicitly documented high-risk zone; not yet semantically hardened |
 
-Known violations must be documented and reduced by small slices. They must not be used as precedent for new violations.
+Known violations must be documented and reduced by medium safe domain slices when possible. They must not be used as precedent for new violations.
 
 ## 13. Staged Migration Plan
 
@@ -219,10 +223,10 @@ Known violations must be documented and reduced by small slices. They must not b
    No new raw SQL in adapters and no new generic helper sprawl.
 
 3. Stage 3: route obvious command/event DB writes through owners.
-   Focus first on narrow slices where the owner is already known.
+   Focus first on bounded slices where the owner is already known.
 
 4. Stage 4: split large services by inventory, not by big rewrite.
-   Use focused inventories for `ItemService`, `StreamerService`, settings, permissions, and economy mutation surfaces.
+   Use focused inventories for `ItemService`, `StreamerService`, settings, permissions, and economy mutation surfaces; implement medium safe domain slices after the inventory.
 
 5. Stage 5: handle destructive cleanup and schema constraints only after dedicated reviews.
    This includes stale cleanup semantics, uniqueness constraints, duplicate rows, and delete/archive policy.
