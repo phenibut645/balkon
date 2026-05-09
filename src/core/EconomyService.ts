@@ -2,7 +2,7 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
 import { NotificationService } from "./NotificationService.js";
-import { ItemService } from "./ItemService.js";
+import { memberService } from "./MemberService.js";
 
 type EconomyTotals = {
   totalOdm: number;
@@ -336,19 +336,20 @@ export class EconomyService {
   }
 
   async adjustMemberBalanceByAdmin(input: AdminAdjustMemberBalanceInput): Promise<AdminAdjustMemberBalanceResult> {
-    const admin = await ItemService.getInstance().ensureMemberByDiscordId(input.adminDiscordId);
-    if (!admin.success) {
+    let adminMemberId: number;
+    try {
+      adminMemberId = await memberService.ensureMemberByDiscordId(input.adminDiscordId, { createdSource: "unknown" });
+    } catch {
       throw new EconomyAdjustmentError("TARGET_MEMBER_CREATE_FAILED", "Failed to resolve admin member.");
     }
 
-    let target;
+    let targetMemberId: number;
     try {
-      target = await ItemService.getInstance().ensureMemberByDiscordId(input.targetDiscordId);
+      targetMemberId = await memberService.ensureMemberByDiscordId(input.targetDiscordId, { createdSource: "unknown" });
     } catch {
       throw new EconomyAdjustmentError("TARGET_MEMBER_CREATE_FAILED", "Failed to resolve target member.");
     }
 
-    const targetMember = target.data;
     const column = input.currency === "ODM" ? "balance" : "ldm_balance";
 
     let connection: PoolConnection | null = null;
@@ -360,13 +361,13 @@ export class EconomyService {
       if (input.amount > 0) {
         const [result] = await connection.query<ResultSetHeader>(
           `UPDATE members SET ${column} = ${column} + ? WHERE id = ?`,
-          [input.amount, targetMember.id],
+          [input.amount, targetMemberId],
         );
         updateResult = result;
       } else {
         const [result] = await connection.query<ResultSetHeader>(
           `UPDATE members SET ${column} = ${column} + ? WHERE id = ? AND ${column} + ? >= 0`,
-          [input.amount, targetMember.id, input.amount],
+          [input.amount, targetMemberId, input.amount],
         );
         updateResult = result;
       }
@@ -378,7 +379,7 @@ export class EconomyService {
 
       const [balanceRows] = await connection.query<MemberBalanceRow[]>(
         `SELECT id, ds_member_id, balance, ldm_balance FROM members WHERE id = ? LIMIT 1`,
-        [targetMember.id],
+        [targetMemberId],
       );
 
       const balanceRow = balanceRows[0];
@@ -398,13 +399,13 @@ export class EconomyService {
            balance_after,
            reason
          ) VALUES (?, ?, ?, ?, ?, ?)`,
-        [admin.data.id, targetMember.id, input.currency, input.amount, balanceAfter, input.reason],
+        [adminMemberId, targetMemberId, input.currency, input.amount, balanceAfter, input.reason],
       );
 
       await connection.commit();
 
       void this.notifyTargetMember({
-        targetMemberId: targetMember.id,
+        targetMemberId: targetMemberId,
         currency: input.currency,
         amount: input.amount,
         reason: input.reason,
