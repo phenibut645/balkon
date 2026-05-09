@@ -1,5 +1,4 @@
 import { FastifyInstance } from "fastify";
-import { DataBaseHandler } from "../../../core/DataBaseHandler.js";
 import { streamerService } from "../../../core/StreamerService.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
 import { requireBotAdmin } from "../../middleware/requireBotAdmin.js";
@@ -65,7 +64,7 @@ export async function registerAdminStreamerRoutes(app: FastifyInstance): Promise
       archivedByDiscordId: request.authUser!.discordId,
     });
 
-    if (DataBaseHandler.isFail(response)) {
+    if (response.success === false) {
       const errorCode = response.error.code;
       if (errorCode === "STREAMER_NOT_FOUND") {
         return serviceErrorResponse("STREAMER_NOT_FOUND", "Streamer not found.", response.error);
