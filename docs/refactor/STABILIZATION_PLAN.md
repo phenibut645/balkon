@@ -416,15 +416,24 @@ Forbidden first candidates unless a fresh inventory proves the slice is bounded:
 
 Goal: make `dashboardRoutes.ts` a composition layer.
 
+Read first:
+
+```text
+docs/refactor/DASHBOARD_ROUTE_MODULES_PLAN.md
+```
+
 Steps:
 
-1. inventory remaining endpoints in `dashboardRoutes.ts`
-2. group by domain
-3. extract one coherent route group at a time
-4. preserve response shapes
-5. standardize validation/error mapping later
+1. create or refresh `docs/refactor/DASHBOARD_ROUTES_INVENTORY.md`
+2. inventory remaining endpoints in `dashboardRoutes.ts`
+3. group endpoints by coherent route module / feature cluster
+4. extract one coherent route group at a time
+5. preserve paths, HTTP methods, auth/preHandler requirements, response shapes, error codes/messages, service calls, and side effects
+6. standardize validation/error mapping later, not during extraction unless explicitly scoped
 
-Do not combine with service/domain refactors unless required by the same bounded slice and explicitly reviewed.
+Do not combine route extraction with service/domain refactors unless required by the same bounded slice and explicitly reviewed.
+
+Do not default to one file per endpoint. Prefer one route module per coherent endpoint group, with single-endpoint modules only for complex, security-sensitive, or likely-to-grow endpoints.
 
 ---
 
@@ -494,7 +503,7 @@ Current recommended order:
 5. economy ownership slice: one coherent low/medium-risk balance mutation group through `EconomyService` and repository boundary
 6. ItemService inventory slice: method map, SQL map, target owners, grouping recommendations
 7. ItemService read-only extraction slice: catalog/rarity/type/read-only search boundary
-8. dashboard routes composition slice: one route group at a time
+8. dashboard routes inventory and route-module extraction slice: one coherent route group at a time
 9. auth/session security inventory and bounded hardening slice
 10. streamer/OBS inventory and first bounded extraction slice
 
