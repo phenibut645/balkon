@@ -15,7 +15,7 @@ Read together with:
 
 ## 1. Verdict
 
-The recommended medium slice has been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, with `ItemService` preserving the same public compatibility methods.
+The recommended medium slices have been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, and the read-only inventory boundary has been extracted into `ItemInventoryReadService`, with `ItemService` preserving the same public compatibility methods.
 
 Why this slice was chosen:
 
@@ -31,10 +31,17 @@ Completed in this slice:
 - Moved read-only ownership for `listRarities(...)`, `searchRarities(...)`, `searchItemTypes(...)`, `searchItemTemplates(...)`, `listItemTemplates(...)`, and `getItemTemplateById(...)` into `ItemCatalogReadService`.
 - Moved the `mapItemTemplateRow(...)` mapper required by `getItemTemplateById(...)` into `ItemCatalogReadService`.
 - Kept `ItemService` method names and return shapes unchanged by delegating those six public methods to `ItemCatalogReadService`.
-- Kept market, bot shop, inventory, craft, OBS/service-item, and write flows in `ItemService` for later slices.
+- Added `src/core/ItemInventoryReadService.ts` as a narrow singleton inventory read boundary.
+- Moved read-only ownership for `searchUserInventory(...)`, `getInventory(...)`, and `getInventoryItemById(...)` into `ItemInventoryReadService`.
+- Moved the `mapInventoryRow(...)` mapper required by `getInventory(...)` and `getInventoryItemById(...)` into `ItemInventoryReadService`.
+- Kept `ItemService` method names and return shapes unchanged by delegating those three public inventory read methods to `ItemInventoryReadService`.
+- Kept market, bot shop, inventory mutations, craft, OBS/service-item, and write flows in `ItemService` for later slices.
 
 Do not pick these first:
 
+- `giveItemToMember(...)`
+- `listItemForSale(...)`
+- `cancelPublicListing(...)`
 - `buyPublicListing(...)`
 - `buyFromBotShop(...)`
 - `sellInventoryItemToBot(...)`
@@ -85,7 +92,7 @@ Current schema facts from `sql/tables.sql`:
 | Search/autocomplete helpers | `searchRarities` | 424-441 | Compatibility method in `ItemService`; delegates rarity autocomplete to `ItemCatalogReadService` | `item_rarities` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `dashboardRoutes` admin search, menu autocomplete | `DBResponse<AutocompleteOption[]>`, `value` is rarity name | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Search/autocomplete helpers | `searchItemTypes` | 443-460 | Compatibility method in `ItemService`; delegates item type autocomplete to `ItemCatalogReadService` | `item_types` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `dashboardRoutes` admin search, menu/item create flows | `DBResponse<AutocompleteOption[]>`, `value` is type name | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Search/autocomplete helpers | `searchItemTemplates` | 462-479 | Compatibility method in `ItemService`; delegates item template autocomplete to `ItemCatalogReadService` | `items` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | `iteminfo`, `itemgive`, `serviceaction`, admin jobs/menu/search | `DBResponse<AutocompleteOption[]>`, `name="#id name"`, `value=id` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
-| Search/autocomplete helpers | `searchUserInventory` | 481-506 | User inventory autocomplete | `member_items`, `members`, `items` | Error helper only | Join read by owner Discord ID | None | Reads by Discord ID only; does not ensure member | None | None | None | Menu/command autocomplete | `DBResponse<AutocompleteOption[]>`, `name="#inventoryId name"`, `value=inventoryItemId` | `InventoryReadModel` | Low-medium | Inventory read model | Not first unless grouped carefully |
+| Search/autocomplete helpers | `searchUserInventory` | 481-506 | Compatibility method in `ItemService`; delegates inventory autocomplete to `ItemInventoryReadService` | `member_items`, `members`, `items` | Error helper only | Join read by owner Discord ID | None | Reads by Discord ID only; does not ensure member | None | None | None | Menu/command autocomplete | `DBResponse<AutocompleteOption[]>`, `name="#inventoryId name"`, `value=inventoryItemId` | `ItemInventoryReadService` | Low-medium | Completed inventory read slice | Completed |
 | Search/autocomplete helpers | `searchPublicListings` | 508-534 | Public market listing autocomplete | `item_public_market`, `member_items`, `items` | Error helper only | Join read | None | None | None | None | None | Market/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `MarketReadModel` | Low-medium | Search extraction | Maybe, if read-only slice includes market search |
 | Search/autocomplete helpers | `searchUserPublicListings` | 536-566 | User listing autocomplete by filtering `listUserPublicMarket` | Indirect `item_public_market`, `member_items`, `items`, `members` | In callee only | In callee only | None | None | None | None | Depends on full market list projection | Market/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `MarketReadModel` | Medium | Market read slice | Not first if catalog-only |
 | Search/autocomplete helpers | `searchBotShopListings` | 568-593 | Bot shop listing autocomplete | `item_general_store`, `items` | Error helper only | Join read | None | None | None | None | None | Bot shop/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `BotShopReadModel` | Low-medium | Search extraction | Maybe, if read-only slice includes shop search |
@@ -115,9 +122,9 @@ Current schema facts from `sql/tables.sql`:
 | Public market | `createSellerMarketSaleNotification` | 2131-2160 | Best-effort seller notification after market sale | `notifications` via `NotificationService` | None | None locally | Runs after market purchase commit; catches/logs errors | Uses member ids passed from purchase | None | None | Calls `NotificationService.createForMember`; failure swallowed | Only `buyPublicListing` | `Promise<void>` | `NotificationService` call stays in use case owner | Medium | Market purchase slice | No |
 | Economy-coupled item flows | `buyFromBotShop` | 2162-2255 | Buy fixed-price bot shop item(s): debit buyer and insert inventory items | `item_general_store`, `items`, `item_types`, `item_rarities`, `members.balance`, `member_items` | Error helper only; member resolving wrapper | `SELECT ... FOR UPDATE`, `UPDATE members`, bulk `INSERT member_items` | Explicit transaction | Calls `ensureMemberByDiscordId` for buyer | Direct buyer debit | Inserts N `member_items`, `tier=1`, original owner=buyer | No notification/audit | API `/botshop/:listingId/buy`, menu bot shop | `DBResponse<{ inserted }>` | `BotShopService` + `EconomyService` + `InventoryService` | High | Bot shop purchase slice | No |
 | Economy-coupled item flows | `sellInventoryItemToBot` | 2257-2355 | Sell owned inventory item to bot: delete item/listing and credit balance | `member_items`, `item_public_market`, `items`, `members.balance`, `item_types`, `item_rarities` | Error helper only | `SELECT ... FOR UPDATE`, deletes listing/item, `UPDATE members` | Explicit transaction | Seller verified by joined owner row | Direct seller credit | Deletes listing and inventory item | No notification/audit | API `/inventory/:id/sell-to-bot`, menu inventory | `DBResponse<{ price }>`; API adds `received`, post-read `balance` | `BotShopService`/`InventoryService` + `EconomyService` | High | Sell-to-bot slice | No |
-| Inventory reads | `getInventory` | 2357-2403 | Read inventory for Discord user with owner/original owner identity and item metadata | `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | Reads by owner Discord ID; does not ensure member | None | None | Uses `mapInventoryRow`; display-name mapping is response contract | API `/inventory`, `/inventory` command, menu | `DBResponse<InventoryItemView[]>` | `InventoryReadModel` | Low-medium | Inventory read model | Good second read slice |
-| Inventory reads | `getInventoryItemById` | 2405-2457 | Read one inventory item by instance id | `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | Used by market listing, service item prep, item view | `DBResponse<InventoryItemView | null>` | `InventoryReadModel` | Low-medium | Inventory read model | Maybe after catalog read slice |
-| Presentation metadata and localization | `mapInventoryRow` | 2459-2494 | Map inventory SQL row to API/bot view with localization and identity fields | None | None | None | None | None | None | None | Calls `resolveMemberDisplayName`; bug-prone if passed unbound | `getInventory`, `getInventoryItemById` | `InventoryItemView` | `InventoryReadModel` mapper | Low | Inventory read model | Later |
+| Inventory reads | `getInventory` | 2357-2403 | Compatibility method in `ItemService`; delegates inventory list read to `ItemInventoryReadService` | `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | Reads by owner Discord ID; does not ensure member | None | None | Uses `mapInventoryRow`; display-name mapping is response contract | API `/inventory`, `/inventory` command, menu | `DBResponse<InventoryItemView[]>` | `ItemInventoryReadService` | Low-medium | Completed inventory read slice | Completed |
+| Inventory reads | `getInventoryItemById` | 2405-2457 | Compatibility method in `ItemService`; delegates inventory item read to `ItemInventoryReadService` | `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | Used by market listing, service item prep, item view | `DBResponse<InventoryItemView | null>` | `ItemInventoryReadService` | Low-medium | Completed inventory read slice | Completed |
+| Presentation metadata and localization | `mapInventoryRow` | 2459-2494 | Private mapper moved from `ItemService` to `ItemInventoryReadService` for inventory read projection | None | None | None | None | None | None | None | Calls equivalent display-name mapping; response contract preserved | `getInventory`, `getInventoryItemById` | `InventoryItemView` | `ItemInventoryReadService` | Low | Completed inventory read slice | Completed |
 | Presentation metadata and localization | `resolveMemberDisplayName` | 2496-2508 | Resolve display name from cached global name/username; fallback to static unknown text | None | None | None | None | None | None | None | Used for inventory/market owner fields | `mapInventoryRow`, `listPublicMarket` | `string` | Shared identity/display mapper or read model-local helper | Low | Pure helper/read model | Later |
 | Presentation metadata and localization | `mapItemTemplateRow` | 2510-2530 | Private mapper moved from `ItemService` to `ItemCatalogReadService` for item template read projection | None | None | None | None | None | None | None | Maps localization/presentation fields | `getItemTemplateById` | `ItemTemplateView` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Presentation metadata and localization | `mapCraftRecipe` | 2532-2563 | Map recipe + ingredient rows to craft recipe view with localized fields | None | None | None | None | None | None | None | Maps result/ingredient localization and emoji | `listCraftRecipes`, `getCraftRecipeById` | `CraftRecipeView` | `CraftReadModel` | Low | Craft read model | Later |
@@ -247,8 +254,8 @@ Current behavior:
 
 Target direction:
 
-- `InventoryReadModel` for read-only inventory projections.
-- Keep response shape stable when extracted.
+- `ItemInventoryReadService` now owns the current read-only inventory projections behind preserved `ItemService` compatibility methods.
+- Keep response shape stable as later inventory mutation slices are separated.
 
 ### 4.5 Inventory grants / mutations
 
@@ -385,7 +392,8 @@ Current behavior:
 Target direction:
 
 - The first safe catalog read/search slice is complete: rarity, type, and item template searches now route through `ItemCatalogReadService`.
-- Market/shop/craft/inventory searches can follow in domain-specific read models.
+- The safe inventory read slice is now complete: `searchUserInventory(...)`, `getInventory(...)`, and `getInventoryItemById(...)` route through `ItemInventoryReadService`.
+- Market/shop/craft searches can follow in domain-specific read models.
 
 ### 4.10 Service/OBS-related item surfaces
 

@@ -3,6 +3,7 @@ import { PoolConnection } from "mysql2/promise";
 import pool from "../db.js";
 import { DataBaseHandler, DBResponse, DBResponseSuccess } from "./DataBaseHandler.js";
 import { ItemCatalogReadService } from "./ItemCatalogReadService.js";
+import { ItemInventoryReadService } from "./ItemInventoryReadService.js";
 import { memberService } from "./MemberService.js";
 import { NotificationService } from "./NotificationService.js";
 import { CraftRecipeIngredientsDB, CraftRecipesDB, ItemGeneralStoreDB, ItemPublicMarketDB, ItemRaritiesDB, ItemsDB, ItemTypesDB, MemberItemsDB, MembersDB } from "../types/database.types.js";
@@ -420,30 +421,7 @@ export class ItemService {
     }
 
     async searchUserInventory(discordUserId: string, query: string): Promise<DBResponse<AutocompleteOption[]>> {
-        try {
-            const [rows] = await pool.query<RowDataPacket[]>(
-                `SELECT
-                    mi.id,
-                    i.name
-                 FROM member_items AS mi
-                 INNER JOIN members AS m ON m.id = mi.member_id
-                 INNER JOIN items AS i ON i.id = mi.item_id
-                 WHERE m.ds_member_id = ? AND (CAST(mi.id AS CHAR) LIKE ? OR i.name LIKE ? OR COALESCE(i.emoji, '') LIKE ?)
-                 ORDER BY mi.id DESC
-                 LIMIT 25`,
-                [discordUserId, `%${query}%`, `%${query}%`, `%${query}%`]
-            );
-
-            return {
-                success: true,
-                data: rows.map(row => ({
-                    name: `#${row.id} ${row.name}`,
-                    value: Number(row.id),
-                })),
-            };
-        } catch (error) {
-            return DataBaseHandler.errorHandling(error);
-        }
+        return ItemInventoryReadService.getInstance().searchUserInventory(discordUserId, query);
     }
 
     async searchPublicListings(query: string): Promise<DBResponse<AutocompleteOption[]>> {
@@ -2223,142 +2201,11 @@ export class ItemService {
     }
 
     async getInventory(discordUserId: string): Promise<DBResponse<InventoryItemView[]>> {
-        try {
-            const [rows] = await pool.query<InventoryRow[]>(
-                `SELECT
-                    mi.id AS inventory_item_id,
-                    mi.member_id AS owner_member_id,
-                    owner.ds_member_id AS owner_ds_member_id,
-                    owner.discord_username AS owner_discord_username,
-                    owner.discord_global_name AS owner_discord_global_name,
-                    owner.discord_avatar_url AS owner_discord_avatar_url,
-                    mi.original_owner_member_id,
-                    original_owner.ds_member_id AS original_owner_ds_member_id,
-                    original_owner.discord_username AS original_owner_discord_username,
-                    original_owner.discord_global_name AS original_owner_discord_global_name,
-                    original_owner.discord_avatar_url AS original_owner_discord_avatar_url,
-                    mi.obtained_at,
-                    mi.tier,
-                    i.id AS item_template_id,
-                    i.name AS item_name,
-                    i.description AS item_description,
-                    i.emoji AS item_emoji,
-                    i.image_url,
-                    i.tradeable,
-                    i.sellable,
-                    i.bot_sell_price,
-                    it.name AS item_type_name,
-                    ir.name AS rarity_name,
-                    ir.color_hex AS rarity_color_hex
-                 FROM member_items AS mi
-                 INNER JOIN members AS owner ON owner.id = mi.member_id
-                 LEFT JOIN members AS original_owner ON original_owner.id = mi.original_owner_member_id
-                 INNER JOIN items AS i ON i.id = mi.item_id
-                 INNER JOIN item_types AS it ON it.id = i.item_type_id
-                 INNER JOIN item_rarities AS ir ON ir.id = i.item_rarity_id
-                 WHERE owner.ds_member_id = ?
-                 ORDER BY mi.id DESC`,
-                [discordUserId]
-            );
-
-            return {
-                success: true,
-                data: rows.map(row => this.mapInventoryRow(row)),
-            };
-        } catch (error) {
-            return DataBaseHandler.errorHandling(error);
-        }
+        return ItemInventoryReadService.getInstance().getInventory(discordUserId);
     }
 
     async getInventoryItemById(inventoryItemId: number): Promise<DBResponse<InventoryItemView | null>> {
-        try {
-            const [rows] = await pool.query<InventoryRow[]>(
-                `SELECT
-                    mi.id AS inventory_item_id,
-                    mi.member_id AS owner_member_id,
-                    owner.ds_member_id AS owner_ds_member_id,
-                    owner.discord_username AS owner_discord_username,
-                    owner.discord_global_name AS owner_discord_global_name,
-                    owner.discord_avatar_url AS owner_discord_avatar_url,
-                    mi.original_owner_member_id,
-                    original_owner.ds_member_id AS original_owner_ds_member_id,
-                    original_owner.discord_username AS original_owner_discord_username,
-                    original_owner.discord_global_name AS original_owner_discord_global_name,
-                    original_owner.discord_avatar_url AS original_owner_discord_avatar_url,
-                    mi.obtained_at,
-                    mi.tier,
-                    i.id AS item_template_id,
-                    i.name AS item_name,
-                    i.description AS item_description,
-                    i.name_ru,
-                    i.name_en,
-                    i.name_et,
-                    i.description_ru,
-                    i.description_en,
-                    i.description_et,
-                    i.emoji AS item_emoji,
-                    i.image_url,
-                    i.tradeable,
-                    i.sellable,
-                    i.bot_sell_price,
-                    it.name AS item_type_name,
-                    ir.name AS rarity_name,
-                    ir.color_hex AS rarity_color_hex
-                 FROM member_items AS mi
-                 INNER JOIN members AS owner ON owner.id = mi.member_id
-                 LEFT JOIN members AS original_owner ON original_owner.id = mi.original_owner_member_id
-                 INNER JOIN items AS i ON i.id = mi.item_id
-                 INNER JOIN item_types AS it ON it.id = i.item_type_id
-                 INNER JOIN item_rarities AS ir ON ir.id = i.item_rarity_id
-                 WHERE mi.id = ?
-                 LIMIT 1`,
-                [inventoryItemId]
-            );
-
-            return {
-                success: true,
-                data: rows.length ? this.mapInventoryRow(rows[0]) : null,
-            };
-        } catch (error) {
-            return DataBaseHandler.errorHandling(error);
-        }
-    }
-
-    private mapInventoryRow(row: InventoryRow): InventoryItemView {
-        return {
-            inventoryItemId: row.inventory_item_id,
-            ownerDiscordId: row.owner_ds_member_id,
-            ownerDisplayName: this.resolveMemberDisplayName(row.owner_ds_member_id, row.owner_discord_global_name, row.owner_discord_username),
-            ownerAvatarUrl: row.owner_discord_avatar_url,
-            originalOwnerDiscordId: row.original_owner_ds_member_id,
-            originalOwnerDisplayName: row.original_owner_ds_member_id
-                ? this.resolveMemberDisplayName(
-                    row.original_owner_ds_member_id,
-                    row.original_owner_discord_global_name,
-                    row.original_owner_discord_username,
-                )
-                : null,
-            originalOwnerAvatarUrl: row.original_owner_discord_avatar_url,
-            obtainedAt: new Date(row.obtained_at),
-            tier: row.tier,
-            itemTemplateId: row.item_template_id,
-            name: row.item_name,
-            description: row.item_description,
-            nameRu: row.name_ru,
-            nameEn: row.name_en,
-            nameEt: row.name_et,
-            descriptionRu: row.description_ru,
-            descriptionEn: row.description_en,
-            descriptionEt: row.description_et,
-            emoji: row.item_emoji,
-            imageUrl: row.image_url,
-            tradeable: Boolean(row.tradeable),
-            sellable: Boolean(row.sellable),
-            botSellPrice: row.bot_sell_price,
-            itemType: row.item_type_name,
-            rarityName: row.rarity_name,
-            rarityColorHex: row.rarity_color_hex,
-        };
+        return ItemInventoryReadService.getInstance().getInventoryItemById(inventoryItemId);
     }
 
     private resolveMemberDisplayName(discordId: string, globalName: string | null, username: string | null): string {
