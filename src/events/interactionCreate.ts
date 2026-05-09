@@ -3,7 +3,6 @@ import { commands } from "../core/commands/CommandsLoader.js";
 import { permissionController } from "../core/PermissionController.js";
 import { CommandAccessLevels } from "../types/database.types.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
-import { DataBaseHandler } from "../core/DataBaseHandler.js";
 import { guildMemberService } from "../core/GuildMemberService.js";
 import { memberService } from "../core/MemberService.js";
 
@@ -56,7 +55,7 @@ export const interactionCreateController = async (interaction: Interaction) => {
         }
 
         const permissionResponse = await permissionController(interaction.member, interaction.commandName);
-        if (DataBaseHandler.isFail(permissionResponse) || !permissionResponse.data) {
+        if (permissionResponse.success === false || !permissionResponse.data) {
           await interaction.reply({content: "У вас нет доступа к этой команде.", flags: ["Ephemeral"]});
           return;
         }
