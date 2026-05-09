@@ -17,7 +17,7 @@ import {
 } from "discord.js";
 import { DEVELOPER_DISCORD_ID } from "../config.js";
 import { canViewForeignInventory, getBotAdminDashboardStats, getBotContributorIds, getFounderBootstrapAudit, getFounderDashboardStats, isBotAdmin, isBotContributor, isBotOwner, isGuildFounder, updateBotContributor } from "../core/BotAdmin.js";
-import { dataBaseHandler, DataBaseHandler } from "../core/DataBaseHandler.js";
+import { EconomyService } from "../core/EconomyService.js";
 import { localeService } from "../core/LocaleService.js";
 import { ObsMediaAction } from "../core/ObsService.js";
 import { GuildStreamerView, streamerService } from "../core/StreamerService.js";
@@ -26,7 +26,7 @@ import { BotShopListingView, CraftRecipeView, InventoryItemView, ItemRarityView,
 import { commandSessionHandler } from "../core/commands/CommandSessionHandler.js";
 import { Command } from "../core/commands/Command.js";
 import { CommandDTO } from "../dto/CommandDTO.js";
-import { CommandAccessLevels, MembersDB } from "../types/database.types.js";
+import { CommandAccessLevels } from "../types/database.types.js";
 import { LocalesCodes, supportedLocales } from "../types/locales.type.js";
 import { ButtonExecutionFunc, CommandName, ModalsExecutionFunc, StringSelectMenuExecutionFunc, UserSelectMenuExecutionFunc } from "../types/command.type.js";
 import { normalizeLocale, t } from "../utils/i18n.js";
@@ -3296,13 +3296,12 @@ export default class MenuCommand extends Command {
     }
 
     private async getBalanceSummary(userId: string, locale: LocalesCodes): Promise<string> {
-        const response = await dataBaseHandler.getFromTable<MembersDB>("members", { ds_member_id: userId }, ["balance", "ldm_balance"]);
-        if (DataBaseHandler.isFail(response) || !response.data.length) {
+        const response = await EconomyService.getInstance().getMemberBalancesByDiscordId(userId);
+        if (!response.success || !response.data) {
             return t(locale, "menu.balance_unavailable");
         }
 
-        const member = response.data[0];
-        return `${member.balance} ODM · ${member.ldm_balance ?? 0} LDM`;
+        return `${response.data.balance} ODM · ${response.data.ldm_balance ?? 0} LDM`;
     }
 
     private async getMenuOverviewCounts(userId: string, locale: LocalesCodes) {
