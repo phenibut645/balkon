@@ -1,37 +1,5 @@
 # Economy Mutation Inventory
 
-<<<<<<< HEAD
-Task: KAN economy stabilization follow-up
-
-This document is a focused factual inventory for known `members.balance` and `members.ldm_balance` mutation surfaces.
-
-It is inventory-only. It does not change runtime code, schema, migrations, or ownership by itself.
-
-## Current Mutation Status
-
-| Mutation surface | Current owner | Member resolving path | Status | Remaining risks |
-| --- | --- | --- | --- | --- |
-| Admin economy adjustment | `src/core/EconomyService.ts` | `MemberService.ensureMemberByDiscordId(...)` for admin and target member ids | accepted; member resolving cleanup completed | audit/ledger still absent; balance semantics still rely on direct column mutation; notification remains post-commit only |
-| Job reward credit | `src/core/EconomyService.ts` via `creditJobReward(...)` called from `src/core/JobService.ts` | caller passes resolved `memberId` | accepted transitional slice | no audit/ledger; broader job/economy semantics still need separate review |
-| OBS media charge/refund | `src/core/ShopObsService.ts` | unresolved in this inventory | open | direct charge/refund remains outside `EconomyService`; external side effects and refund semantics stay coupled |
-| Market and bot-shop balance mutations | `src/core/ItemService.ts` | unresolved in this inventory | open | market purchase, bot-shop buy, and sell-to-bot balance mutations remain in `ItemService` |
-| Roulette payout semantics | `src/core/EconomyService.ts` and `src/commands/roulette.ts` | unresolved in this inventory | open | payout route exists, but wider roulette semantics remain open |
-
-## Accepted Slice Notes
-
-- Admin adjustment member resolving cleanup is completed and accepted.
-- `EconomyService.adjustMemberBalanceByAdmin(...)` no longer depends on `ItemService` for member resolving.
-- `EconomyService` now uses `MemberService` directly for admin and target member id resolution.
-- This does not complete economy ownership centralization.
-- This does not resolve OBS/media, market, bot-shop, or roulette semantics.
-- This does not add an audit log, ledger, schema change, or migration.
-
-## Explicit Non-Changes
-
-- No schema or migration changes are implied by this inventory.
-- No route, command, event, OBS agent, or frontend behavior is changed by this document.
-- This document does not declare the economy mutation surface fully stabilized.
-=======
 This document records the current economy mutation surfaces and replacement map.
 
 It is a factual inventory and planning aid. It does not change runtime code, schema, migrations, or behavior by itself.
@@ -70,14 +38,15 @@ inventory -> risk map -> medium safe domain slice -> validation -> docs sync
 - `/menu` balance summary uses `EconomyService.getMemberBalancesByDiscordId(...)`.
 - Roulette payout no longer performs direct command-layer `DataBaseHandler.updateTable(...)`; it delegates to `EconomyService.creditRoulettePayoutByDiscordId(...)`.
 - `JobService.runJob(...)` no longer directly executes reward balance SQL. The job use case still owns the transaction, cooldown logic, optional item reward, and response shape, but the reward credit SQL now lives in `EconomyService.creditJobReward(...)` and uses the active `PoolConnection`.
+- `EconomyService.adjustMemberBalanceByAdmin(...)` no longer depends on `ItemService` for admin or target member resolving. It now resolves admin and target member ids through `MemberService.ensureMemberByDiscordId(...)` via `memberService`.
 
 ### Still open
 
-- `EconomyService.adjustMemberBalanceByAdmin(...)` is inside the current economy owner but still resolves admin/target members through `ItemService.getInstance().ensureMemberByDiscordId(...)`.
 - `ShopObsService` still owns direct OBS media charge/refund balance SQL and coordinates external OBS side effects.
 - `ItemService` still owns direct balance SQL for public market purchase, bot shop purchase, and sell-to-bot flows.
 - General audit ledger does not exist yet.
 - Roulette semantics remain weak even though the payout SQL is behind `EconomyService`.
+- `JobService` and other services may still call `ItemService.ensureMemberByDiscordId(...)` for non-admin-adjustment member resolving; that is separate from the accepted admin economy cleanup.
 
 ## 3. Mutation Inventory
 
@@ -86,7 +55,7 @@ inventory -> risk map -> medium safe domain slice -> validation -> docs sync
 | Balance lookup for commands/menu | `src/core/EconomyService.ts` | `SELECT balance, ldm_balance FROM members WHERE ds_member_id = ?` | User balance display | No transaction | N/A | N/A | `EconomyService` | Keep; future read model only if needed | Low | No |
 | Economy totals/snapshots | `src/core/EconomyService.ts` | Reads `members.balance`, `members.ldm_balance`; writes `economy_daily_snapshots` | Economy dashboard/reporting | No wrapping transaction | N/A | Snapshot table only | `EconomyService` | Keep; future economy read model optional | Medium | No |
 | Roulette payout | `src/core/EconomyService.ts` | `UPDATE members SET balance = balance + ? WHERE ds_member_id = ?` | Roulette win payout | Single statement | None | No ledger; result reports affected rows | `EconomyService` | Future game/economy use case | Medium-high semantic risk | Not first |
-| Admin balance adjustment | `src/core/EconomyService.ts` | Dynamic `balance` / `ldm_balance` update plus insert into `admin_economy_adjustments` | Admin manual balance correction | Explicit transaction | Rollback before commit | `admin_economy_adjustments`; no general ledger | `EconomyService`, but member resolving via `ItemService` | `EconomyService` + `MemberService`; later audit ledger | Medium | Later |
+| Admin balance adjustment | `src/core/EconomyService.ts` | Dynamic `balance` / `ldm_balance` update plus insert into `admin_economy_adjustments` | Admin manual balance correction | Explicit transaction | Rollback before commit | `admin_economy_adjustments`; no general ledger | `EconomyService`, with admin/target member resolving through `MemberService` | Later audit ledger; later repository split if justified | Medium | Completed |
 | Job reward credit | `src/core/EconomyService.ts` + `src/core/JobService.ts` | `EconomyService.creditJobReward(...)` updates `members.balance` and reads balance using the provided transaction connection | Reward user for running a job | Existing `JobService.runJob(...)` transaction still owns job lock, cooldown lock, reward credit, optional item grant, cooldown write, commit/rollback | Rollback before commit | No ledger/job run history | `JobService` owns use case; `EconomyService` owns balance SQL | Accepted current boundary; later audit/ledger | Medium | Completed |
 | OBS media charge | `src/core/ShopObsService.ts` | `UPDATE members SET balance = balance - ? WHERE id = ? AND balance >= ?` | Charge buyer for OBS media/service purchase | Single statement before OBS action/queue flow; not one DB transaction with all side effects | Explicit refund path if later OBS command/action fails | OBS action status only; no general ledger | `ShopObsService` | OBS purchase use case + `EconomyService` charge/refund methods | High | No |
 | OBS media refund | `src/core/ShopObsService.ts` | `UPDATE members SET balance = balance + ? WHERE id = ?` | Refund failed OBS media purchase | Single statement compensation | This is the refund primitive; refund failure is marked when possible | OBS action status only; no general ledger | `ShopObsService` | OBS purchase use case + `EconomyService` refund method | High | No |
@@ -97,10 +66,12 @@ inventory -> risk map -> medium safe domain slice -> validation -> docs sync
 
 ## 4. Direct Mutation Search Expectations
 
-After the accepted job reward slice:
+After the accepted job reward and admin resolving slices:
 
 - `src/core/JobService.ts` should not contain direct `UPDATE members` reward balance SQL.
 - `src/core/EconomyService.ts` should contain job reward credit SQL through `creditJobReward(...)`.
+- `src/core/EconomyService.ts` should not import `ItemService`.
+- `src/core/EconomyService.ts` should resolve admin and target member ids through `MemberService` / `memberService`.
 - Existing direct balance mutations are still expected in:
   - `src/core/EconomyService.ts` for roulette/admin/job reward;
   - `src/core/ShopObsService.ts` for OBS charge/refund;
@@ -117,6 +88,8 @@ ldm_balance
 creditJobReward
 creditRoulettePayoutByDiscordId
 adjustMemberBalanceByAdmin
+memberService.ensureMemberByDiscordId
+ItemService.getInstance().ensureMemberByDiscordId
 tryChargeMember
 refundMember
 buyPublicListing
@@ -128,18 +101,17 @@ sellInventoryItemToBot
 
 ### Medium candidates
 
-1. Admin adjustment member resolving cleanup.
-   - Replace `ItemService.getInstance().ensureMemberByDiscordId(...)` inside `EconomyService.adjustMemberBalanceByAdmin(...)` with proper member ownership.
-   - Useful because it removes economy dependence on the broad item service.
-   - Must preserve admin/target resolution behavior and error codes.
-
-2. Dashboard `/economy/me` read cleanup.
+1. Dashboard `/economy/me` read cleanup.
    - Move current balance read away from `ItemService.ensureMemberByDiscordId(...)` toward an economy/member-aware read path.
    - Useful but read-only; not a mutation ownership win.
 
-3. Sell inventory item to bot, later.
+2. Sell inventory item to bot, later.
    - Simpler than market transfer or OBS, but still includes destructive inventory/listing changes.
    - Needs focused `ItemService` method inventory first.
+
+3. Member resolving cleanup in other non-economy services.
+   - Some services may still depend on `ItemService.ensureMemberByDiscordId(...)` for member resolving.
+   - Should be handled as separate ownership cleanup slices, not hidden inside economy mutation changes.
 
 ### High-risk candidates
 
@@ -165,25 +137,24 @@ sellInventoryItemToBot
 
 ## 6. Recommended Next Slices
 
-Recommended order after the completed job reward slice:
+Recommended order after the completed job reward and admin resolving slices:
 
-1. **Admin adjustment member resolving cleanup**
-   - Goal: remove `EconomyService` dependency on `ItemService` for admin/target member resolving.
-   - Why: strong ownership improvement with limited behavior surface.
-   - Guardrail: do not change balance update semantics, `admin_economy_adjustments`, route response mapping, notification behavior, schema, or audit.
-
-2. **Dashboard `/economy/me` read cleanup**
+1. **Dashboard `/economy/me` read cleanup**
    - Goal: stop using `ItemService` as balance read owner in the dashboard economy route.
    - Why: simple read ownership cleanup; useful after admin cleanup.
    - Guardrail: preserve response shape.
 
-3. **ItemService inventory before market/bot-shop/sell-to-bot changes**
+2. **ItemService inventory before market/bot-shop/sell-to-bot changes**
    - Goal: map item/economy/inventory transaction boundaries before moving any purchase/sale balance mutations.
    - Why: these flows are too coupled for blind extraction.
 
-4. **OBS purchase/refund inventory before any OBS economy implementation**
+3. **OBS purchase/refund inventory before any OBS economy implementation**
    - Goal: document charge/refund/action/queue/side-effect ordering before changing money flow.
    - Why: high risk of refund/side-effect bugs.
+
+4. **Audit/economy ledger design**
+   - Goal: design audit/ledger shape before adding broad audit writes.
+   - Why: audit must be consistent and should not be sprinkled randomly.
 
 ## 7. Completed Slice Note: Job Reward Credit
 
@@ -211,5 +182,33 @@ Preserved behavior:
 Follow-up:
 
 - Audit/ledger remains absent and should be handled by a dedicated audit/economy slice later.
-- JobService still uses `ItemService.ensureMemberByDiscordId(...)`; that belongs to a member resolving cleanup, not the completed reward-credit slice.
->>>>>>> 4f8a13c3c2e3149567738490d1adb08abfdf6614
+- JobService still uses `ItemService.ensureMemberByDiscordId(...)`; that belongs to a separate member resolving cleanup, not the completed reward-credit slice.
+
+## 8. Completed Slice Note: Admin Adjustment Member Resolving
+
+Accepted implementation shape:
+
+```text
+EconomyService.adjustMemberBalanceByAdmin(...)
+  -> memberService.ensureMemberByDiscordId(adminDiscordId, { createdSource: "unknown" })
+  -> memberService.ensureMemberByDiscordId(targetDiscordId, { createdSource: "unknown" })
+  -> existing transaction and balance adjustment SQL
+```
+
+Preserved behavior:
+
+- admin and target member ids are still ensured before the adjustment transaction;
+- existing `TARGET_MEMBER_CREATE_FAILED` error code and messages are preserved;
+- dynamic ODM/LDM column selection is unchanged;
+- positive adjustment and non-negative deduction guard are unchanged;
+- adjusted balance read is unchanged;
+- `admin_economy_adjustments` insert is unchanged except it now uses numeric ids returned by `MemberService` directly;
+- commit/rollback behavior is unchanged;
+- notification remains post-commit;
+- route response mapping is unchanged;
+- no audit/ledger/schema change was added.
+
+Follow-up:
+
+- General audit/ledger remains absent.
+- Admin adjustment SQL still lives in `EconomyService`; a future repository split may be considered only after stronger persistence boundaries are justified.
