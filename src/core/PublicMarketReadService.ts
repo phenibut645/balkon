@@ -21,6 +21,12 @@ interface PublicMarketRow extends RowDataPacket {
     item_template_id: number;
     item_name: string;
     item_description: string;
+    name_ru: string | null;
+    name_en: string | null;
+    name_et: string | null;
+    description_ru: string | null;
+    description_en: string | null;
+    description_et: string | null;
     item_emoji: string | null;
     image_url: string | null;
     tradeable: number;
@@ -122,6 +128,12 @@ export class PublicMarketReadService {
                     i.id AS item_template_id,
                     i.name AS item_name,
                     i.description AS item_description,
+                    i.name_ru,
+                    i.name_en,
+                    i.name_et,
+                    i.description_ru,
+                    i.description_en,
+                    i.description_et,
                     i.emoji AS item_emoji,
                     i.image_url,
                     i.tradeable,
