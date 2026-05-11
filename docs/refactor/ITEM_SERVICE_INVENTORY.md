@@ -15,7 +15,7 @@ Read together with:
 
 ## 1. Verdict
 
-The recommended medium slices have been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, and the read-only inventory boundary has been extracted into `ItemInventoryReadService`, with `ItemService` preserving the same public compatibility methods.
+The recommended medium slices have been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, the read-only inventory boundary has been extracted into `ItemInventoryReadService`, and the read-only bot shop boundary has been extracted into `BotShopReadService`, with `ItemService` preserving the same public compatibility methods.
 
 Why this slice was chosen:
 
@@ -35,7 +35,11 @@ Completed in this slice:
 - Moved read-only ownership for `searchUserInventory(...)`, `getInventory(...)`, and `getInventoryItemById(...)` into `ItemInventoryReadService`.
 - Moved the `mapInventoryRow(...)` mapper required by `getInventory(...)` and `getInventoryItemById(...)` into `ItemInventoryReadService`.
 - Kept `ItemService` method names and return shapes unchanged by delegating those three public inventory read methods to `ItemInventoryReadService`.
-- Kept market, bot shop, inventory mutations, craft, OBS/service-item, and write flows in `ItemService` for later slices.
+- Added `src/core/BotShopReadService.ts` as a narrow singleton bot shop read boundary.
+- Moved read-only ownership for `searchBotShopListings(...)` and `listBotShop(...)` into `BotShopReadService`.
+- Added `mapBotShopRow(...)` inside `BotShopReadService` for the bot shop list projection.
+- Kept `ItemService` method names and return shapes unchanged by delegating those two public bot shop read methods to `BotShopReadService`.
+- Kept market, bot shop buy/sell mutations, inventory mutations, craft, OBS/service-item, and write flows in `ItemService` for later slices.
 
 Do not pick these first:
 
@@ -95,7 +99,7 @@ Current schema facts from `sql/tables.sql`:
 | Search/autocomplete helpers | `searchUserInventory` | 481-506 | Compatibility method in `ItemService`; delegates inventory autocomplete to `ItemInventoryReadService` | `member_items`, `members`, `items` | Error helper only | Join read by owner Discord ID | None | Reads by Discord ID only; does not ensure member | None | None | None | Menu/command autocomplete | `DBResponse<AutocompleteOption[]>`, `name="#inventoryId name"`, `value=inventoryItemId` | `ItemInventoryReadService` | Low-medium | Completed inventory read slice | Completed |
 | Search/autocomplete helpers | `searchPublicListings` | 508-534 | Public market listing autocomplete | `item_public_market`, `member_items`, `items` | Error helper only | Join read | None | None | None | None | None | Market/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `MarketReadModel` | Low-medium | Search extraction | Maybe, if read-only slice includes market search |
 | Search/autocomplete helpers | `searchUserPublicListings` | 536-566 | User listing autocomplete by filtering `listUserPublicMarket` | Indirect `item_public_market`, `member_items`, `items`, `members` | In callee only | In callee only | None | None | None | None | Depends on full market list projection | Market/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `MarketReadModel` | Medium | Market read slice | Not first if catalog-only |
-| Search/autocomplete helpers | `searchBotShopListings` | 568-593 | Bot shop listing autocomplete | `item_general_store`, `items` | Error helper only | Join read | None | None | None | None | None | Bot shop/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `BotShopReadModel` | Low-medium | Search extraction | Maybe, if read-only slice includes shop search |
+| Search/autocomplete helpers | `searchBotShopListings` | 568-593 | Compatibility method in `ItemService`; delegates bot shop autocomplete to `BotShopReadService` | `item_general_store`, `items` | Error helper only | Join read | None | None | None | None | None | Bot shop/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `BotShopReadService` | Low-medium | Completed bot shop read slice | Completed |
 | Search/autocomplete helpers | `searchCraftRecipes` | 595-612 | Craft recipe autocomplete | `craft_recipes` | Error helper only | `SELECT id, name ... LIKE` | None | None | None | None | None | Craft/menu autocomplete | `DBResponse<AutocompleteOption[]>` | `CraftReadModel` | Low-medium | Search extraction | Maybe, if read-only slice includes craft search |
 | Rarities and item types | `ensureItemType` | 614-640 | Find or create item type by normalized name | `item_types` | `getFromTable`, `addRecords` | None | None | None | None | None | Creates catalog metadata implicitly | `createItemTemplate`, `updateItemTemplate` | `DBResponseSuccess<ItemTypesDB>` or throw | `ItemCatalogService` | Medium | Catalog write boundary | No |
 | Item catalog / templates | `createItemTemplate` | 642-713 | Create item template with localization, emoji, image URL, tradeable/sellable, bot sell price, creator | `items`, `item_rarities`, `item_types`, `members` | `getFromTable`, `addRecords` | None | None | Calls `ensureItemType`; calls `ensureMemberByDiscordId` for creator | None | None | Creates type as side effect if missing | API `/admin/items`, Discord `itemcreate`, menu admin | `DBResponse<{ insertId }>` | `ItemCatalogService` plus member owner | Medium | Catalog admin boundary | Not first read slice |
@@ -112,7 +116,7 @@ Current schema facts from `sql/tables.sql`:
 | Item catalog / templates | `getItemTemplateById` | 1472-1515 | Compatibility method in `ItemService`; delegates item template view read to `ItemCatalogReadService` | `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | `StreamerService.upsertItemServiceAction`, item info flows | `DBResponse<ItemTemplateView | null>` | `ItemCatalogReadService` | Low | Completed read slice | Completed |
 | Bot shop buy/sell | `addOrUpdateBotShopListing` | 1517-1571 | Admin create/update bot shop listing for item template | `item_general_store`, `items` | `getFromTable`, `updateTable`, `addRecords` | None | None | None | None | None | Upsert behavior by `item_id`; no explicit actor | API `/admin/botshop`, menu/admin | `DBResponse<{ listingId }>` | `BotShopService` | Medium | Bot shop admin boundary | Not first |
 | Bot shop buy/sell | `deleteBotShopListing` | 1573-1598 | Delete bot shop listing | `item_general_store` | Error helper only | `DELETE item_general_store` | None | None | None | None | Destructive listing config delete | API `/admin/botshop/:listingId`, menu/admin | `DBResponse<{ listingId }>` | `BotShopService` | Medium | Bot shop admin boundary | Not first |
-| Bot shop buy/sell | `listBotShop` | 1600-1657 | Read bot shop listing cards with item metadata | `item_general_store`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | API `/botshop`, `/admin/botshop`, menu bot shop | `DBResponse<BotShopListingView[]>` | `BotShopReadModel` | Low-medium | Read model candidate | Maybe after catalog read slice |
+| Bot shop buy/sell | `listBotShop` | 1600-1657 | Compatibility method in `ItemService`; delegates bot shop listing read to `BotShopReadService` | `item_general_store`, `items`, `item_types`, `item_rarities` | Error helper only | Join read | None | None | None | None | None | API `/botshop`, `/admin/botshop`, menu bot shop | `DBResponse<BotShopListingView[]>` | `BotShopReadService` | Low-medium | Completed bot shop read slice | Completed |
 | Public market | `createPublicListing` | 1659-1727 | List owned inventory item on public market | `member_items`, `item_public_market`, `items` via inventory read | `getFromTable`, `addRecords` | Indirect through `getInventoryItemById` | No explicit transaction | Uses inventory item owner Discord ID; no ensure | None | Inserts `item_public_market` row | Depends on inventory read and tradeable flag | API `/inventory/:id/market-listing`, market command/menu | `DBResponse<{ listingId }>` | `MarketService` | Medium-high | Market listing slice | No |
 | Public market | `cancelPublicListing` | 1729-1818 | Cancel own listing | `item_public_market`, `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | `SELECT ... FOR UPDATE`, `DELETE item_public_market` | Explicit transaction | Seller verified by Discord ID from joined member row | None | Deletes listing only | None | API `/market/:id`, market command/menu | `DBResponse<{ listingId; inventoryItemId }>` | `MarketService` | Medium | Market listing slice | Not first |
 | Public market | `updatePublicListingPrice` | 1820-1904 | Update own listing price | `item_public_market`, `member_items`, `members`, `items`, `item_types`, `item_rarities` | Error helper only | `SELECT ... FOR UPDATE`, `UPDATE item_public_market` | Explicit transaction | Seller verified by Discord ID | None | Updates listing price only | None | API `/market/:id`, market command/menu | `DBResponse<{ listingId; price }>` | `MarketService` | Medium | Market listing slice | Not first |
@@ -330,6 +334,7 @@ Current behavior:
 
 Target direction:
 
+- `BotShopReadService` now owns the read-only bot shop listing/search projections behind preserved `ItemService` compatibility methods.
 - `BotShopReadModel` for listing reads.
 - `BotShopService` for buy/sell orchestration.
 - `EconomyService` for debit/credit.
@@ -393,7 +398,8 @@ Target direction:
 
 - The first safe catalog read/search slice is complete: rarity, type, and item template searches now route through `ItemCatalogReadService`.
 - The safe inventory read slice is now complete: `searchUserInventory(...)`, `getInventory(...)`, and `getInventoryItemById(...)` route through `ItemInventoryReadService`.
-- Market/shop/craft searches can follow in domain-specific read models.
+- The safe bot shop read slice is now complete: `searchBotShopListings(...)` and `listBotShop(...)` route through `BotShopReadService`.
+- Market and craft searches can follow in domain-specific read models.
 
 ### 4.10 Service/OBS-related item surfaces
 
