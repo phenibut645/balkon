@@ -1,7 +1,7 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
-import type { DBResponse } from "./DataBaseHandler.js";
+import { errorHandling } from "./DbResult.js";
+import type { DBResponse } from "./DbResult.js";
 import type { AutocompleteOption, ItemRarityView, ItemTemplateRow, ItemTemplateView } from "./ItemViewTypes.js";
 
 export class ItemCatalogReadService {
@@ -30,7 +30,7 @@ export class ItemCatalogReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -49,7 +49,7 @@ export class ItemCatalogReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -68,7 +68,7 @@ export class ItemCatalogReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -87,7 +87,7 @@ export class ItemCatalogReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -123,7 +123,7 @@ export class ItemCatalogReadService {
                 data: rows,
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -168,7 +168,7 @@ export class ItemCatalogReadService {
                 data: this.mapItemTemplateRow(rows[0]),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 

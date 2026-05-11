@@ -2,7 +2,16 @@
 
 This document is a strict read-only inventory of `DBResponse`, `DBResponseSuccess`, `DBResponseFail`, `DataBaseHandler.errorHandling(...)`, and related `DataBaseHandler` result-helper usage.
 
-No runtime code was changed for this inventory.
+The constrained item-read-service `DbResult` retarget slice is now completed and accepted.
+
+What changed in the accepted slice:
+
+- Added `src/core/DbResult.ts` as a neutral result and error helper module.
+- Preserved `DataBaseHandler` compatibility by keeping legacy DB response type exports and static helper methods available from `src/core/DataBaseHandler.ts`.
+- Retargeted only the five extracted item read services to import `DBResponse` and `errorHandling(...)` from `DbResult.ts`.
+- Left broad global `DBResponse` retargeting blocked for higher-risk services, events, routes, commands, and legacy persistence-heavy code.
+
+No SQL or runtime read behavior changed in the accepted slice.
 
 ## 1. Purpose And Scope
 
@@ -12,18 +21,24 @@ Goal:
 Decide whether a neutral result/error module is a safe next medium slice.
 ```
 
-Explicit non-goals:
+Explicit non-goals for the accepted slice:
 
-- Do not create `DbResult.ts` yet.
-- Do not move `errorHandling(...)` yet.
-- Do not edit `DataBaseHandler`.
+- Do not remove `DataBaseHandler`.
+- Do not retarget broad repo-wide `DBResponse` usage.
 - Do not change service logic.
 - Do not change SQL.
 - Do not change response shapes.
 - Do not retarget routes, commands, events, or broad services in this task.
 
-Allowed file changed by this inventory:
+Allowed files changed by this accepted slice:
 
+- `src/core/DbResult.ts`
+- `src/core/DataBaseHandler.ts`
+- `src/core/ItemCatalogReadService.ts`
+- `src/core/ItemInventoryReadService.ts`
+- `src/core/BotShopReadService.ts`
+- `src/core/CraftRecipeReadService.ts`
+- `src/core/PublicMarketReadService.ts`
 - `docs/refactor/DB_RESPONSE_USAGE_INVENTORY.md`
 
 ## 2. Evidence Summary
@@ -57,7 +72,7 @@ return {
 }
 ```
 
-Important finding:
+Important finding that justified the accepted slice:
 
 The five extracted item read services import `DataBaseHandler` at runtime only for `DataBaseHandler.errorHandling(...)`, and import `DBResponse` as type-only from `DataBaseHandler`.
 
@@ -73,7 +88,7 @@ They do not use:
 - `DBResponseSuccess`
 - `DBResponseFail`
 
-Therefore, retargeting only those five read services to a neutral result/error helper can be behavior-preserving if the helper is byte-for-byte equivalent for the failure shape and logging side effects.
+Therefore, retargeting only those five read services to a neutral result/error helper is behavior-preserving when the helper is byte-for-byte equivalent for the failure shape and logging side effects.
 
 ## 3. Required Read Files Status
 

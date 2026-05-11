@@ -1,7 +1,7 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
-import type { DBResponse } from "./DataBaseHandler.js";
+import { errorHandling } from "./DbResult.js";
+import type { DBResponse } from "./DbResult.js";
 import type { AutocompleteOption, InventoryItemView } from "./ItemViewTypes.js";
 
 interface InventoryRow extends RowDataPacket {
@@ -71,7 +71,7 @@ export class ItemInventoryReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -125,7 +125,7 @@ export class ItemInventoryReadService {
                 data: rows.map(row => this.mapInventoryRow(row)),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -179,7 +179,7 @@ export class ItemInventoryReadService {
                 data: rows.length ? this.mapInventoryRow(rows[0]) : null,
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 

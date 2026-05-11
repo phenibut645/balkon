@@ -1,7 +1,7 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
-import type { DBResponse } from "./DataBaseHandler.js";
+import { errorHandling } from "./DbResult.js";
+import type { DBResponse } from "./DbResult.js";
 import type { AutocompleteOption, PublicMarketListingView } from "./ItemViewTypes.js";
 
 interface PublicMarketRow extends RowDataPacket {
@@ -72,7 +72,7 @@ export class PublicMarketReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -104,7 +104,7 @@ export class PublicMarketReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -157,7 +157,7 @@ export class PublicMarketReadService {
                 data: rows.map(row => this.mapPublicMarketRow(row)),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 

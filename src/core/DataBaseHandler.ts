@@ -3,12 +3,17 @@ import pool from "../db.js";
 import { CommandsDB, DataBaseTables, DefaultDBTable, GuildChannels, GuildMembersD, GuildRolesDB, GuildsDB, MembersDB, MemberStatuses, StreamersDB, TwitchNotificationChannelsDB } from "../types/database.types.js";
 import { IStreamers } from "../types/streamers.types.js";
 import { ChannelType, Guild, Interaction, PermissionsBitField } from "discord.js";
+import { errorHandling, isFail, isSuccess, UpdateType } from "./DbResult.js";
+import type { DBError, DBResponse, DBResponseFail, DBResponseSuccess, InsertIdResponse, IsExistsResponse } from "./DbResult.js";
 import { guildChannelCacheService } from "./GuildChannelCacheService.js";
 import { guildLogSettingsService } from "./GuildLogSettingsService.js";
 import { guildRoleCacheService } from "./GuildRoleCacheService.js";
 import { settingsService } from "./SettingsService.js";
 import { guildRecordService } from "./GuildRecordService.js";
 import { memberService } from "./MemberService.js";
+
+export type { DBError, DBResponseSuccess, DBResponseFail, DBResponse, InsertIdResponse, IsExistsResponse } from "./DbResult.js";
+export { UpdateType } from "./DbResult.js";
 
 export interface GuildBootstrapSummary {
     guildId: number;
@@ -20,50 +25,11 @@ export interface GuildBootstrapSummary {
     configuredLogChannels: number;
 }
 
-export type PossibleErrorReason = "record_not_found" | "mysql_error" | "unknown";
-export type RelatedTo = "unknown" | DataBaseTables;
-
-export interface DBError {
-    reason: PossibleErrorReason;
-    relatedTo: RelatedTo;
-    code?: string;
-    message?: string;
-}
-
-export interface DBResponseSuccess<T> {
-    success: true;
-    data: T;
-    error?: undefined;
-}
-
-export interface DBResponseFail {
-    success: false;
-    data?: undefined;
-    error: DBError; 
-}
-
-export type DBResponse<T> = DBResponseSuccess<T> | DBResponseFail;
-
-export interface InsertIdResponse {
-    insertId: number
-}
-
-export interface IsExistsResponse {
-    exists: boolean,
-    memberId?: number,
-    guildId?: number,
-    guildMemberId?: number,
-}
-
 interface StreamerData extends RowDataPacket {
   nickname: string;
   twitch_url: string;
   ds_channel_id: string;
   ds_guild_id: string;
-}
-
-export enum UpdateType {
-    Add = "add"
 }
 
 export class DataBaseHandler {  
@@ -79,27 +45,15 @@ export class DataBaseHandler {
     }
 
     static isSuccess<T>(res: DBResponse<T>): res is DBResponseSuccess<T> {
-        return res.success;
+        return isSuccess(res);
     }
 
     static isFail<T>(res: DBResponse<T>): res is DBResponseFail {
-        return !res.success;
+        return isFail(res);
     }
 
     static errorHandling(err?: unknown, ): DBResponseFail {
-        console.log(" Error handling...")
-        console.error(err)
-        return {
-            success: false,
-            error: {
-                reason: "unknown",
-                relatedTo: "unknown",
-                code: err instanceof Error && typeof (err as Error & { code?: unknown }).code === "string"
-                    ? (err as Error & { code?: string }).code
-                    : undefined,
-                message: err instanceof Error ? err.message : undefined
-            }
-        }
+        return errorHandling(err);
     }
 
     async getRecords<T extends DefaultDBTable>(table: DataBaseTables, id: number | null): Promise<DBResponse<T[]>> {

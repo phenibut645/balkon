@@ -1,7 +1,7 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
-import type { DBResponse } from "./DataBaseHandler.js";
+import { errorHandling } from "./DbResult.js";
+import type { DBResponse } from "./DbResult.js";
 import type { AutocompleteOption, BotShopListingView } from "./ItemViewTypes.js";
 
 interface BotShopRow extends RowDataPacket {
@@ -60,7 +60,7 @@ export class BotShopReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -99,7 +99,7 @@ export class BotShopReadService {
                 data: rows.map(row => this.mapBotShopRow(row)),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 

@@ -1,7 +1,7 @@
 import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
-import { DataBaseHandler } from "./DataBaseHandler.js";
-import type { DBResponse } from "./DataBaseHandler.js";
+import { errorHandling } from "./DbResult.js";
+import type { DBResponse } from "./DbResult.js";
 import type { AutocompleteOption, CraftRecipeView } from "./ItemViewTypes.js";
 
 interface CraftRecipeRow extends RowDataPacket {
@@ -66,7 +66,7 @@ export class CraftRecipeReadService {
                 })),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -123,7 +123,7 @@ export class CraftRecipeReadService {
                 data: recipeRows.map(recipeRow => this.mapCraftRecipe(recipeRow, ingredientRows.filter(row => row.craft_recipe_id === recipeRow.recipe_id))),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
@@ -183,7 +183,7 @@ export class CraftRecipeReadService {
                 data: this.mapCraftRecipe(recipeRows[0], ingredientRows),
             };
         } catch (error) {
-            return DataBaseHandler.errorHandling(error);
+            return errorHandling(error);
         }
     }
 
