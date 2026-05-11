@@ -2,7 +2,7 @@ import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
 import type { DBResponse } from "./DataBaseHandler.js";
-import type { AutocompleteOption, CraftRecipeView } from "./ItemService.js";
+import type { AutocompleteOption, CraftRecipeView } from "./ItemViewTypes.js";
 
 interface CraftRecipeRow extends RowDataPacket {
     recipe_id: number;

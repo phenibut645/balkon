@@ -2,7 +2,7 @@ import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
 import type { DBResponse } from "./DataBaseHandler.js";
-import type { AutocompleteOption, InventoryItemView } from "./ItemService.js";
+import type { AutocompleteOption, InventoryItemView } from "./ItemViewTypes.js";
 
 interface InventoryRow extends RowDataPacket {
     inventory_item_id: number;

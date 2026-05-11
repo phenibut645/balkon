@@ -2,27 +2,7 @@ import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
 import type { DBResponse } from "./DataBaseHandler.js";
-import type { AutocompleteOption, ItemRarityView, ItemTemplateView } from "./ItemService.js";
-
-interface ItemTemplateRow extends RowDataPacket {
-    id: number;
-    name: string;
-    description: string;
-    name_ru: string | null;
-    name_en: string | null;
-    name_et: string | null;
-    description_ru: string | null;
-    description_en: string | null;
-    description_et: string | null;
-    emoji: string | null;
-    image_url: string | null;
-    tradeable: number;
-    sellable: number;
-    bot_sell_price: number | null;
-    item_type_name: string;
-    rarity_name: string;
-    rarity_color_hex: string | null;
-}
+import type { AutocompleteOption, ItemRarityView, ItemTemplateRow, ItemTemplateView } from "./ItemViewTypes.js";
 
 export class ItemCatalogReadService {
     private static instance: ItemCatalogReadService;

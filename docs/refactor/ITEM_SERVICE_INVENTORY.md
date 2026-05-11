@@ -15,7 +15,7 @@ Read together with:
 
 ## 1. Verdict
 
-The recommended medium slices have been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, the read-only inventory boundary has been extracted into `ItemInventoryReadService`, the read-only bot shop boundary has been extracted into `BotShopReadService`, the read-only craft recipe boundary has been extracted into `CraftRecipeReadService`, and the read-only public market boundary has been extracted into `PublicMarketReadService`, with `ItemService` preserving the same public compatibility methods.
+The recommended medium slices have been completed and accepted: the read-only item catalog/search boundary has been extracted from `ItemService` into `ItemCatalogReadService`, the read-only inventory boundary has been extracted into `ItemInventoryReadService`, the read-only bot shop boundary has been extracted into `BotShopReadService`, the read-only craft recipe boundary has been extracted into `CraftRecipeReadService`, the read-only public market boundary has been extracted into `PublicMarketReadService`, and the shared item read/view DTO types have been extracted into `ItemViewTypes`, with `ItemService` preserving the same public compatibility methods and type re-exports.
 
 Why this slice was chosen:
 
@@ -47,6 +47,9 @@ Completed in this slice:
 - Moved read-only ownership for `searchPublicListings(...)`, `searchUserPublicListings(...)`, `listPublicMarket(...)`, and `listUserPublicMarket(...)` into `PublicMarketReadService`.
 - Added local public market row and display-name mapping helpers inside `PublicMarketReadService` without widening scope.
 - Kept `ItemService` method names and return shapes unchanged by delegating those four public market read methods to `PublicMarketReadService`.
+- Added `src/core/ItemViewTypes.ts` as the neutral source of truth for shared item read/view DTO interfaces.
+- Moved shared exported item read/view types out of `ItemService` into `ItemViewTypes`, including the cross-service `ItemTemplateRow` typing used by catalog reads.
+- Kept `ItemService` type-compatible for existing imports by re-exporting those moved types from `ItemViewTypes`.
 - Kept listing creation, market cancel or price update, market purchases, bot shop buy/sell mutations, inventory mutations, craft execution, craft recipe writes, OBS/service-item, and other write flows in `ItemService` for later slices.
 
 Do not pick these first:
@@ -70,7 +73,7 @@ Do not pick these first:
 - member resolving compatibility wrapper;
 - rarity/type administration;
 - item template CRUD;
-- item localization and presentation metadata mapping;
+- compatibility ownership of shared item read/view type exports;
 - inventory reads;
 - inventory grants;
 - public market listing and purchase flows;

@@ -2,7 +2,7 @@ import { RowDataPacket } from "mysql2";
 import pool from "../db.js";
 import { DataBaseHandler } from "./DataBaseHandler.js";
 import type { DBResponse } from "./DataBaseHandler.js";
-import type { AutocompleteOption, PublicMarketListingView } from "./ItemService.js";
+import type { AutocompleteOption, PublicMarketListingView } from "./ItemViewTypes.js";
 
 interface PublicMarketRow extends RowDataPacket {
     listing_id: number;
